@@ -1,0 +1,466 @@
+"""Drawing a violation's metadata blob.
+
+THE BLOB IS IN TWO DIFFERENT COORDINATE SYSTEMS AND THIS MODULE EXISTS TO KEEP THEM
+APART. `bboxes` are pixels in the source video's frame. `trajectory` is metres on the
+ground plane — `trajectory_collector` is unambiguous about it ("UNITS ARE METRES,
+throughout"), because two objects the same distance apart on screen are metres apart at
+the bottom of a frame and tens of metres apart at the top. So:
+
+  - boxes are drawn over the thumbnail, scaled by thumbnail_size / source_resolution;
+  - trajectories are NOT. They get their own top-down plot in metres.
+
+Drawing a ground-plane path over a perspective image would put a plausible-looking line
+in the wrong place, which is worse than not drawing it at all.
+
+evidence-worker deliberately bakes nothing onto the image (see cut.py: "NOTHING IS
+DRAWN ON") precisely so the rendering lives here and improving it improves every
+violation ever recorded.
+"""
+
+from __future__ import annotations
+
+import io
+from dataclasses import dataclass, field
+from typing import Any, Iterable
+
+import altair as alt
+import pandas as pd
+from PIL import Image, ImageDraw, ImageFont
+
+# Slots 1-3 of the reference categorical palette, in order. Three and not more on
+# purpose: the ground-plane plot is a scatter/path form, where every pair of series can
+# end up adjacent, and only the first three slots clear the all-pairs colour-vision
+# floors. Past three the guidance is to fold or facet rather than invent a fourth hue,
+# which is what TrackPicker below does.
+SERIES = ("#2a78d6", "#eb6834", "#1baf7a")
+# Everything not currently selected. Deliberately a grey rather than a fourth hue: it
+# reads as "context", not as another identity.
+MUTED = "#94a3b8"
+# Ink, never a series colour — text carries no identity of its own.
+INK = "#0f172a"
+INK_SOFT = "#64748b"
+GRID = "#e2e8f0"
+
+
+@dataclass
+class Track:
+    """One object's path, with the parallel lists zipped into something indexable.
+
+    The four lists on TrackSummary are parallel by index, which is easy to get wrong
+    at every call site — so it is unpacked exactly once, here.
+    """
+
+    track_id: int
+    kind: str  # "vehicle" | "pedestrian"
+    frame_idxs: list[int] = field(default_factory=list)
+    bboxes: list[tuple] = field(default_factory=list)
+    trajectory: list[Any] = field(default_factory=list)
+    speed: list[Any] = field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        return f"{self.kind[:3]} #{self.track_id}"
+
+    def at(self, frame_index: int | None) -> int | None:
+        """The index of the sample nearest `frame_index`, or None if this track was
+        not present anywhere near it.
+
+        Nearest rather than exact: a violation's frame_index comes off the detector and
+        a track's samples are whatever the tracker emitted, so demanding equality would
+        silently draw nothing for a track that is plainly in the frame.
+        """
+        if frame_index is None or not self.frame_idxs:
+            return None
+        best = min(
+            range(len(self.frame_idxs)),
+            key=lambda i: abs(self.frame_idxs[i] - frame_index),
+        )
+        # Half a second at 30fps. Beyond that the box is not evidence of anything at
+        # the moment in question.
+        return best if abs(self.frame_idxs[best] - frame_index) <= 15 else None
+
+    def bbox_at(self, frame_index: int | None) -> tuple | None:
+        i = self.at(frame_index)
+        if i is None or i >= len(self.bboxes):
+            return None
+        return self.bboxes[i]
+
+    def speed_at(self, frame_index: int | None) -> float | None:
+        i = self.at(frame_index)
+        if i is None or i >= len(self.speed):
+            return None
+        return self.speed[i]
+
+
+def tracks_of(metadata: dict | None) -> list[Track]:
+    """Every track in the blob, vehicles then pedestrians."""
+    if not metadata:
+        return []
+    out: list[Track] = []
+    for kind, key in (("vehicle", "vehicles"), ("pedestrian", "pedestrians")):
+        for raw in metadata.get(key) or []:
+            out.append(
+                Track(
+                    track_id=raw.get("track_id"),
+                    kind=kind,
+                    frame_idxs=list(raw.get("frame_idxs") or []),
+                    bboxes=list(raw.get("bboxes") or []),
+                    trajectory=list(raw.get("trajectory") or []),
+                    speed=list(raw.get("speed") or []),
+                )
+            )
+    return out
+
+
+def default_selection(tracks: list[Track], violator_id: int | None, limit: int = 3) -> list[int]:
+    """Which tracks to colour when the page first opens.
+
+    The violator always, then the longest-lived tracks — length is a decent proxy for
+    "was actually part of this event" and needs nothing the blob does not carry.
+    """
+    chosen = [t.track_id for t in tracks if t.track_id == violator_id]
+    rest = sorted(
+        (t for t in tracks if t.track_id != violator_id),
+        key=lambda t: len(t.frame_idxs),
+        reverse=True,
+    )
+    for track in rest:
+        if len(chosen) >= limit:
+            break
+        chosen.append(track.track_id)
+    return chosen
+
+
+def colour_map(selected: Iterable[int]) -> dict[int, str]:
+    """Track id -> hue, assigned in fixed slot order.
+
+    Colour follows the entity: the same track is the same colour on the image, on the
+    ground plot and on the speed chart, which is the whole reason a reader can connect
+    the three. Never cycled — the selection is capped at len(SERIES) instead.
+    """
+    return {tid: SERIES[i % len(SERIES)] for i, tid in enumerate(selected)}
+
+
+# ---------------------------------------------------------------------------
+# The image
+# ---------------------------------------------------------------------------
+
+
+def _font(size: int):
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def draw_boxes(
+    image_bytes: bytes,
+    tracks: list[Track],
+    frame_index: int | None,
+    source_size: tuple[int, int] | None,
+    colours: dict[int, str],
+    violator_id: int | None = None,
+) -> Image.Image:
+    """The thumbnail with a box per track that was present at `frame_index`.
+
+    Boxes are in source-video pixels and the thumbnail may be any size, so everything
+    is scaled by the ratio between them. When the source resolution is unknown the
+    boxes are assumed to already be in the image's own space — which is right whenever
+    the thumbnail is a full-resolution frame, and ffmpeg's `-frames:v 1` with no scale
+    filter makes exactly that.
+    """
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    if source_size and source_size[0]:
+        scale_x = image.width / source_size[0]
+        scale_y = image.height / source_size[1]
+    else:
+        scale_x = scale_y = 1.0
+
+    stroke = max(2, round(image.width / 480))
+    font = _font(max(13, round(image.width / 62)))
+    pad = 5
+
+    labels: list[tuple[float, float, str, str]] = []  # x, y-of-box-top, text, colour
+
+    for track in tracks:
+        box = track.bbox_at(frame_index)
+        if not box:
+            continue
+        x1, y1, x2, y2 = (
+            box[0] * scale_x,
+            box[1] * scale_y,
+            box[2] * scale_x,
+            box[3] * scale_y,
+        )
+        selected = track.track_id in colours
+        colour = colours.get(track.track_id, MUTED)
+        width = stroke + 1 if track.track_id == violator_id else stroke
+
+        # A dark halo under every box. The palette was validated against a flat chart
+        # surface, and a photograph is not one — a box over pale tarmac needs a
+        # separator to stay a box.
+        draw.rectangle([x1 - 1, y1 - 1, x2 + 1, y2 + 1], outline=(0, 0, 0, 150), width=width + 2)
+        draw.rectangle([x1, y1, x2, y2], outline=colour, width=width)
+
+        if not selected and track.track_id != violator_id:
+            # Unselected tracks are context: outlined, but not labelled. A frame with
+            # twenty tracks in it should not carry twenty labels.
+            continue
+
+        text = track.label
+        if track.track_id == violator_id:
+            text += " ⚠"
+        speed = track.speed_at(frame_index)
+        if speed is not None:
+            # Kept short on purpose: a wide label is a label that collides. One
+            # decimal below 100 m/s, none above — anything that fast is a calibration
+            # problem and the extra digit is false precision either way.
+            text += f"  {speed:.1f}" if speed < 100 else f"  {speed:.0f}"
+            text += " m/s"
+        labels.append((x1, y1, text, colour))
+
+    # Labels are placed after every box is drawn, so one never hides another's outline,
+    # and top-down so the nudging below is deterministic rather than dependent on the
+    # order tracks happen to arrive in.
+    placed: list[tuple[float, float, float, float]] = []
+    for x1, y1, text, colour in sorted(labels, key=lambda item: item[1]):
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+        tw, th = right - left, bottom - top
+        bw, bh = tw + pad * 2, th + pad * 2
+
+        # Above the box by preference, below it when that would leave the image.
+        ty = y1 - bh if y1 - bh > 0 else y1
+        tx = min(x1, image.width - bw)
+
+        # Nudge down until the slot is free. Bounded, because a frame dense enough to
+        # exhaust this is one where a perfect answer is not worth the pixels — the
+        # last candidate is drawn wherever it landed rather than dropped, since a
+        # missing label reads as a missing detection.
+        for _ in range(8):
+            if not any(tx < px2 and tx + bw > px1 and ty < py2 and ty + bh > py1
+                       for px1, py1, px2, py2 in placed):
+                break
+            ty += bh + 2
+        placed.append((tx, ty, tx + bw, ty + bh))
+
+        draw.rectangle([tx, ty, tx + bw, ty + bh], fill=colour)
+        draw.text((tx + pad, ty + pad - top), text, fill="#ffffff", font=font)
+
+    return image
+
+
+# Anything above this on the ground plane is a calibration that does not hold, not a
+# vehicle. 60 m/s is 216 km/h — fast enough that no junction camera should see it, and
+# slow enough not to fire on a genuinely speeding car.
+IMPLAUSIBLE_SPEED_MS = 60.0
+
+
+def implausible(tracks: list[Track], colours: dict[int, str]) -> float | None:
+    """The fastest speed among the shown tracks, if it is not believable.
+
+    Surfaced rather than hidden: a reviewer looking at "218 m/s" beside a photograph of
+    a suburban junction should be told the number is wrong, because the alternative is
+    them trusting it. What it indicts is the calibration — speeds are metres on the
+    ground plane, and a wrong projection scales all of them together.
+    """
+    speeds = [
+        s
+        for track in tracks
+        if track.track_id in colours
+        for s in track.speed
+        if s is not None
+    ]
+    fastest = max(speeds, default=0.0)
+    return fastest if fastest > IMPLAUSIBLE_SPEED_MS else None
+
+
+# ---------------------------------------------------------------------------
+# The charts
+# ---------------------------------------------------------------------------
+
+
+def _frame(tracks: list[Track], colours: dict[int, str], fps: float | None) -> pd.DataFrame:
+    """Both charts read one tidy frame — same rows, different encodings."""
+    rows = []
+    for track in tracks:
+        if track.track_id not in colours:
+            continue
+        n = len(track.frame_idxs)
+        for i in range(n):
+            point = track.trajectory[i] if i < len(track.trajectory) else None
+            speed = track.speed[i] if i < len(track.speed) else None
+            frame = track.frame_idxs[i]
+            rows.append(
+                {
+                    "track": track.label,
+                    "track_id": track.track_id,
+                    "frame": frame,
+                    # Seconds, because that is what someone scrubbing a clip needs —
+                    # the same reason the explanation is written in them.
+                    "t": frame / fps if fps else None,
+                    "x": point[0] if point else None,
+                    "y": point[1] if point else None,
+                    "speed": speed,
+                    "order": i,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _scale(colours: dict[int, str], data: pd.DataFrame) -> alt.Scale:
+    """A colour scale bound to track labels, so a track keeps its hue when the
+    selection changes — a filter must never repaint the survivors."""
+    labels = data.drop_duplicates("track_id").set_index("track_id")["track"].to_dict()
+    domain = [labels[tid] for tid in colours if tid in labels]
+    return alt.Scale(domain=domain, range=[colours[tid] for tid in colours if tid in labels])
+
+
+_AXIS = alt.Axis(
+    grid=True,
+    gridColor=GRID,
+    gridWidth=1,
+    domainColor=GRID,
+    tickColor=GRID,
+    labelColor=INK_SOFT,
+    titleColor=INK_SOFT,
+    labelFontSize=11,
+    titleFontSize=11,
+    titleFontWeight="normal",
+)
+
+
+def ground_plot(
+    tracks: list[Track], colours: dict[int, str], fps: float | None, violation_t: float | None
+) -> alt.LayerChart | None:
+    """Where the tracks went, seen from above, in metres.
+
+    A separate chart rather than an overlay for the reason at the top of this file.
+    Reading it as a map is the point: the axes are the ground plane, so distances
+    between two paths are real distances, which is exactly what the perspective image
+    cannot tell you.
+    """
+    data = _frame(tracks, colours, fps).dropna(subset=["x", "y"])
+    if data.empty:
+        return None
+
+    scale = _scale(colours, data)
+    base = alt.Chart(data)
+
+    path = base.mark_line(strokeWidth=2, opacity=0.9).encode(
+        x=alt.X("x:Q", title="ground plane x (m)", axis=_AXIS, scale=alt.Scale(zero=False, nice=True)),
+        y=alt.Y("y:Q", title="ground plane y (m)", axis=_AXIS, scale=alt.Scale(zero=False, nice=True)),
+        color=alt.Color("track:N", scale=scale, legend=alt.Legend(title=None, orient="top", labelColor=INK)),
+        order="order:Q",
+        detail="track:N",
+    )
+
+    # Hover on the marks rather than a crosshair: this is a spatial plot, so "the
+    # nearest point in x" is not a meaningful thing to snap to.
+    points = base.mark_circle(size=34, opacity=0).encode(
+        x="x:Q",
+        y="y:Q",
+        color=alt.Color("track:N", scale=scale, legend=None),
+        tooltip=[
+            alt.Tooltip("track:N", title="Track"),
+            alt.Tooltip("t:Q", title="Time (s)", format=".2f"),
+            alt.Tooltip("speed:Q", title="Speed (m/s)", format=".2f"),
+            alt.Tooltip("x:Q", title="x (m)", format=".1f"),
+            alt.Tooltip("y:Q", title="y (m)", format=".1f"),
+        ],
+    )
+
+    # Direct labels at each path's end. Not decoration: aqua sits under 3:1 on a light
+    # surface, and the relief rule for that is visible labels or a table — both ship.
+    ends = (
+        base.transform_window(rank="rank()", sort=[alt.SortField("order", "descending")], groupby=["track"])
+        .transform_filter(alt.datum.rank == 1)
+        .mark_text(align="left", dx=8, dy=-6, fontSize=11, fontWeight="bold", color=INK)
+        .encode(x="x:Q", y="y:Q", text="track:N")
+    )
+
+    marks = [path, points, ends]
+    if violation_t is not None:
+        moment = data.assign(gap=(data["t"] - violation_t).abs()).sort_values("gap").groupby("track_id").head(1)
+        marks.append(
+            alt.Chart(moment)
+            .mark_point(size=180, shape="diamond", filled=True, stroke="#ffffff", strokeWidth=2)
+            .encode(x="x:Q", y="y:Q", color=alt.Color("track:N", scale=scale, legend=None),
+                    tooltip=[alt.Tooltip("track:N", title="Track"), alt.Tooltip("t:Q", title="Time (s)", format=".2f")])
+        )
+
+    return alt.layer(*marks).properties(height=340).configure_view(strokeWidth=0)
+
+
+def speed_plot(
+    tracks: list[Track], colours: dict[int, str], fps: float | None, violation_t: float | None
+) -> alt.LayerChart | None:
+    """Speed against time, with the moment the rule fired marked.
+
+    One y-axis and one unit. There is no second scale here and there should never be
+    one — a second measure gets a second chart.
+    """
+    data = _frame(tracks, colours, fps).dropna(subset=["speed", "t"])
+    if data.empty:
+        return None
+
+    scale = _scale(colours, data)
+    base = alt.Chart(data)
+    nearest = alt.selection_point(nearest=True, on="pointerover", fields=["t"], empty=False)
+
+    line = base.mark_line(strokeWidth=2).encode(
+        x=alt.X("t:Q", title="seconds into the video", axis=_AXIS),
+        y=alt.Y("speed:Q", title="speed (m/s)", axis=_AXIS),
+        color=alt.Color("track:N", scale=scale, legend=alt.Legend(title=None, orient="top", labelColor=INK)),
+    )
+
+    hover = base.mark_circle(size=90, stroke="#ffffff", strokeWidth=2).encode(
+        x="t:Q",
+        y="speed:Q",
+        color=alt.Color("track:N", scale=scale, legend=None),
+        opacity=alt.condition(nearest, alt.value(1), alt.value(0)),
+        tooltip=[
+            alt.Tooltip("track:N", title="Track"),
+            alt.Tooltip("t:Q", title="Time (s)", format=".2f"),
+            alt.Tooltip("speed:Q", title="Speed (m/s)", format=".2f"),
+            alt.Tooltip("frame:Q", title="Frame"),
+        ],
+    ).add_params(nearest)
+
+    ends = (
+        base.transform_window(rank="rank()", sort=[alt.SortField("t", "descending")], groupby=["track"])
+        .transform_filter(alt.datum.rank == 1)
+        .mark_text(align="left", dx=6, fontSize=11, fontWeight="bold", color=INK)
+        .encode(x="t:Q", y="speed:Q", text="track:N")
+    )
+
+    marks = [line, hover, ends]
+    if violation_t is not None:
+        rule = (
+            alt.Chart(pd.DataFrame({"t": [violation_t]}))
+            .mark_rule(color=INK_SOFT, strokeDash=[4, 4], strokeWidth=1.5)
+            .encode(x="t:Q")
+        )
+        caption = (
+            alt.Chart(pd.DataFrame({"t": [violation_t], "label": ["violation"]}))
+            .mark_text(align="left", dx=5, dy=-6, baseline="top", fontSize=11, color=INK_SOFT)
+            .encode(x="t:Q", y=alt.value(0), text="label:N")
+        )
+        marks[:0] = [rule, caption]
+
+    return alt.layer(*marks).properties(height=260).configure_view(strokeWidth=0)
+
+
+def table(tracks: list[Track], colours: dict[int, str], fps: float | None) -> pd.DataFrame:
+    """The same numbers as a table. Required, not optional: the relief rule for the
+    low-contrast slot in the palette is satisfied by a table view or visible labels,
+    and this ships both."""
+    return _frame(tracks, colours, fps)[["track", "frame", "t", "x", "y", "speed"]].rename(
+        columns={"t": "seconds", "x": "x (m)", "y": "y (m)", "speed": "speed (m/s)"}
+    )

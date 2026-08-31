@@ -1,0 +1,414 @@
+{
+  "info": {
+    "_postman_id": "41827d9a-9a58-4d7c-9cc7-5ac15e41c22b",
+    "name": "Traffic Violation API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "1483446"
+  },
+  "item": [
+    {
+      "name": "Site Service API",
+      "item": [
+        {
+          "name": "Get Sites",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Site",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n     \"name\": \"Site 1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Site Details",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n     \"name\": \"Site 1\",\n     \"url\": \"\",\n     \"mode\": \"video\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/e2820f25-f51a-473b-9145-3e03377b27ce",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "e2820f25-f51a-473b-9145-3e03377b27ce"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Sites",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n     \"name\": \"Site 1\",\n     \"url\": \"\",\n     \"mode\": \"video\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/e2820f25-f51a-473b-9145-3e03377b27ce",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "e2820f25-f51a-473b-9145-3e03377b27ce"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Site Calibration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/42f39ac7-8bcd-4394-83e0-4049f3b39308/calibrations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "42f39ac7-8bcd-4394-83e0-4049f3b39308",
+                "calibrations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Calibration",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \n    \"file_id\": \"f80b2b35-2cf9-477c-8b49-45c576752f11\"\n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/42f39ac7-8bcd-4394-83e0-4049f3b39308/calibrations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "42f39ac7-8bcd-4394-83e0-4049f3b39308",
+                "calibrations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Site Configuration",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/cc613edc-8c67-4eed-badd-63bf3d8893dc/configurations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "cc613edc-8c67-4eed-badd-63bf3d8893dc",
+                "configurations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Site Configuration",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"file_id\": \"37c71cfe-589e-4b93-86ff-6acb869b0577\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/e2820f25-f51a-473b-9145-3e03377b27ce/configurations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "e2820f25-f51a-473b-9145-3e03377b27ce",
+                "configurations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Sources",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"kind\": \"video\",\n    \"file_id\": \"d10a3196-69c3-4493-99fe-0e869e270ba9\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/42f39ac7-8bcd-4394-83e0-4049f3b39308/sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "42f39ac7-8bcd-4394-83e0-4049f3b39308",
+                "sources"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger Detection",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/sites/42f39ac7-8bcd-4394-83e0-4049f3b39308/detect",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sites",
+                "42f39ac7-8bcd-4394-83e0-4049f3b39308",
+                "detect"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "File Service API",
+      "item": [
+        {
+          "name": "Create Files",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"camera_model.yml\",\n    \"type\": \"calibration\",\n    \"size_bytes\": 534\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/files",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload File",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": "/Users/satriabw/Downloads/camera_model.yml"
+              }
+            },
+            "url": {
+              "raw": "https://5360bfff7487279fffde56536e3eb17b.r2.cloudflarestorage.com/files/calibration/f80b2b35-2cf9-477c-8b49-45c576752f11/camera_model.yml?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=6c19693433ce85627fa1bd270498df7c%2F20260820%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260820T172647Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=content-length%3Bhost&X-Amz-Signature=b96ca94417cd05efa6ad357f24179bacf80f62cabc2b85c41ab8cff8f1f3e20c",
+              "protocol": "https",
+              "host": [
+                "5360bfff7487279fffde56536e3eb17b",
+                "r2",
+                "cloudflarestorage",
+                "com"
+              ],
+              "path": [
+                "files",
+                "calibration",
+                "f80b2b35-2cf9-477c-8b49-45c576752f11",
+                "camera_model.yml"
+              ],
+              "query": [
+                {
+                  "key": "X-Amz-Algorithm",
+                  "value": "AWS4-HMAC-SHA256"
+                },
+                {
+                  "key": "X-Amz-Credential",
+                  "value": "6c19693433ce85627fa1bd270498df7c%2F20260820%2Fauto%2Fs3%2Faws4_request"
+                },
+                {
+                  "key": "X-Amz-Date",
+                  "value": "20260820T172647Z"
+                },
+                {
+                  "key": "X-Amz-Expires",
+                  "value": "3600"
+                },
+                {
+                  "key": "X-Amz-SignedHeaders",
+                  "value": "content-length%3Bhost"
+                },
+                {
+                  "key": "X-Amz-Signature",
+                  "value": "b96ca94417cd05efa6ad357f24179bacf80f62cabc2b85c41ab8cff8f1f3e20c"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Poll Upload Status",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/files/f80b2b35-2cf9-477c-8b49-45c576752f11/complete",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "files",
+                "f80b2b35-2cf9-477c-8b49-45c576752f11",
+                "complete"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Violations API",
+      "item": [
+        {
+          "name": "Get Traffic VIolation List",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "Get Violations Details",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        },
+        {
+          "name": "Explain Traffic Violation",
+          "request": {
+            "method": "GET",
+            "header": []
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
