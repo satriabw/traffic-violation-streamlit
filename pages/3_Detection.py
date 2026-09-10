@@ -40,14 +40,13 @@ except (ApiError, ApiUnreachable) as exc:
 # What the job will be
 # ---------------------------------------------------------------------------
 
-st.markdown("#### Source")
+st.markdown("#### Video")
 
 if not source:
-    st.warning("This site has no source. Attach one on Site Setup.", icon="⚠️")
+    st.warning("This site has no video yet. Add one on Site Setup.", icon="⚠️")
 elif source["kind"] != "video":
     st.warning(
-        "Detection runs on a video source, not a stream — a live feed has no frame "
-        "count to bound a job with. The API answers 409.",
+        "Detection works only on uploaded videos, not live camera feeds.",
         icon="⚠️",
     )
 else:
@@ -58,12 +57,12 @@ else:
     cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
     cols[3].metric("Duration", f"{metadata.get('duration_seconds', 0):.1f}s")
     st.caption(
-        f"source `{source['id']}` v{source['version']} — the job pins this version, so "
-        "attaching a new video while the job sits in the queue cannot change what it reads."
+        f"Video version {source['version']}. A run keeps using this version even if a new "
+        "video is added before it starts."
     )
 
 st.divider()
-st.markdown("#### Queue a run")
+st.markdown("#### Start a detection run")
 
 types = st.multiselect(
     "Violation types",
@@ -71,17 +70,16 @@ types = st.multiselect(
     default=[],
     format_func=lambda t: t.replace("_", " "),
     help=(
-        "Leave empty for every type the backend knows about. That is not the same as "
-        "ticking both by hand — an unset list means 'whatever the server supports', so "
-        "the run keeps working when a new type is added."
+        "Leave empty to check all available violation types, including any added in the "
+        "future."
     ),
 )
 if not types:
-    st.caption("Empty → every type the server supports.")
+    st.caption("None selected: all violation types will be checked.")
 
 runnable = bool(source and source["kind"] == "video" and (source.get("metadata") or {}).get("total_frames"))
 
-if st.button("Queue detection", type="primary", disabled=not runnable):
+if st.button("Start detection", type="primary", disabled=not runnable):
     try:
         job = client.detect(site["id"], types or None)
     except (ApiError, ApiUnreachable) as exc:
@@ -89,14 +87,14 @@ if st.button("Queue detection", type="primary", disabled=not runnable):
     else:
         st.session_state["last_job"] = job
         st.session_state["violations_before"] = before
-        st.toast("Job queued", icon="🎯")
+        st.toast("Detection started", icon="🎯")
 
 job = st.session_state.get("last_job")
 if job and job["site_id"] == site["id"]:
-    st.markdown("#### Last job queued from here")
+    st.markdown("#### Last detection run started")
     with st.container(border=True):
         cols = st.columns(4)
-        cols[0].caption(f"**job**\n\n`{job['id']}`")
+        cols[0].caption(f"**run id**\n\n`{job['id']}`")
         cols[1].caption(
             f"**frames**\n\n{job['frame_range']['start']}–{job['frame_range']['end']}"
         )
@@ -115,11 +113,10 @@ if job and job["site_id"] == site["id"]:
             unsafe_allow_html=True,
         )
         st.caption(
-            "Versions were resolved to numbers when the job was created, while "
-            "'active' still meant what you asked for — a document uploaded after this "
-            "cannot change what the run is judged against."
+            "The calibration and configuration versions above are fixed when the run "
+            "starts. Files uploaded later do not affect this run."
         )
-    with st.expander("Raw job message"):
+    with st.expander("Technical details"):
         st.json(job)
 
 # ---------------------------------------------------------------------------
@@ -142,9 +139,8 @@ if current[1].button("Refresh", width="stretch"):
     st.rerun()
 
 watch = current[2].toggle(
-    "Watch for new ones",
-    help="Polls the violation count every 3s for up to two minutes. There is no job "
-    "status endpoint to poll instead — the count is the only observable.",
+    "Update automatically",
+    help="Checks for new violations every 3 seconds, for up to two minutes.",
 )
 
 if watch:
@@ -162,32 +158,29 @@ if watch:
             break
         placeholder.info(
             f"Watching… {total} violations recorded. "
-            f"{int(deadline - time.time())}s left before this stops polling.",
+            f"{int(deadline - time.time())}s left of automatic checking.",
             icon="⏳",
         )
         time.sleep(3)
     else:
         placeholder.warning(
-            "Stopped watching after two minutes. The worker may still be running — "
-            "detection decodes the whole video, so a long clip takes a while.",
+            "Stopped checking after two minutes. Detection may still be running — it "
+            "processes the whole video, so a long video takes a while. Press Refresh to "
+            "check again.",
             icon="⌛",
         )
 
 if before and st.button("Review violations →"):
     st.switch_page("pages/4_Violations.py")
 
-with st.expander("Why there is no job progress bar"):
+with st.expander("Why there is no progress bar"):
     st.markdown(
         """
-The queue carries the job one way. `POST /sites/{id}/detect` enqueues a message and
-returns 202 with the job's id, and there is no endpoint that reads a job back — the
-worker's only output is rows in `traffic_violations`.
+The system does not report how far along a detection run is — it only records
+violations as they are found. The violation count above is therefore the only reliable
+sign of progress; a progress bar would have to show a made-up number.
 
-So the honest thing to poll is the violation count, which is what the toggle above
-does. A progress bar here would be inventing a number the system does not have.
-
-One job covers the whole video today. The chunked runs described in the design — 30
-second windows with 10 seconds of overlap, which is what makes a violation on a chunk
-boundary detectable — arrive with the pipeline that needs them.
+Each run processes the entire video in one go. Splitting long videos into shorter,
+overlapping segments is planned for a later version.
 """
     )

@@ -67,7 +67,7 @@ def source_facts(site_id: str, source_id: str | None) -> tuple[float | None, tup
 selected = st.session_state.get("violation_id")
 
 if selected:
-    if st.button("← Back to the queue"):
+    if st.button("← Back to the list"):
         st.session_state.pop("violation_id")
         st.rerun()
 
@@ -98,9 +98,8 @@ if selected:
 
     if violation.get("evidence_status") is None:
         st.info(
-            "No evidence was ever built for this violation — it predates evidence-worker, "
-            "so there is no clip and nothing queued to make one. That is different from "
-            "`pending`, which would eventually become a clip.",
+            "No evidence clip exists for this violation — it was recorded before evidence "
+            "clips were introduced, so none will be created.",
             icon="🗃️",
         )
 
@@ -118,15 +117,13 @@ if selected:
             options = [t.track_id for t in tracks]
             default = evidence.default_selection(tracks, violator_id)
             chosen = st.multiselect(
-                "Tracks to highlight",
+                "Vehicles to highlight",
                 options,
                 default=default,
                 format_func=lambda tid: next(t.label for t in tracks if t.track_id == tid),
                 help=(
-                    "Three at a time. The colours are chosen so any two of them stay "
-                    "distinguishable under colour-vision deficiency, and that only "
-                    "holds for the first three — a fourth hue would be a worse chart, "
-                    "not a fuller one. Everything unselected is still outlined, in grey."
+                    "Up to three at a time, so the colours stay easy to tell apart, including for "
+                    "colour-blind viewers. Other vehicles are still outlined in grey."
                 ),
             )
             if len(chosen) > len(evidence.SERIES):
@@ -143,38 +140,35 @@ if selected:
             try:
                 raw = fetch_bytes(violation["thumbnail_key"], violation["thumbnail_url"])
             except requests.RequestException as exc:
-                st.error(f"Could not fetch the thumbnail: {exc}", icon="🖼️")
+                st.error(f"Could not load the image: {exc}", icon="🖼️")
             else:
                 if tracks:
                     st.image(
                         evidence.draw_boxes(raw, tracks, frame_index, source_size, colours, violator_id),
-                        caption=f"Frame {frame_index} with detection boxes drawn from the metadata blob.",
+                        caption=f"Frame {frame_index} with the detected vehicles outlined.",
                         width="stretch",
                     )
                     st.caption(
-                        "Boxes are drawn here, not baked in — evidence-worker stores a "
-                        "clean frame on purpose, so improving this drawing improves "
-                        "every violation ever recorded."
+                        "Outlines are drawn on top of the original, unedited video frame."
                     )
                 else:
                     st.image(raw, width="stretch")
         elif violation.get("evidence_status") == "pending":
-            st.info("The thumbnail is still being cut.", icon="⏳")
+            st.info("The image is still being prepared.", icon="⏳")
         elif violation.get("evidence_status") == "failed":
-            st.warning("Evidence could not be cut for this violation.", icon="✂️")
+            st.warning("The evidence clip could not be created for this violation.", icon="✂️")
 
         if violation.get("clip_url"):
             st.markdown("**Clip**")
             st.video(violation["clip_url"])
             st.caption(
-                "Cut to the site's own `evidence_seconds`, so the clip covers exactly "
-                "the span the record does."
+                "The clip covers the same time span as the violation record."
             )
 
     # ---- explanation ------------------------------------------------------
 
     with verdict:
-        st.markdown("#### Reviewer's note")
+        st.markdown("#### AI reviewer's note")
         # Normalised as one document rather than field by field: the prose, both lists
         # of reasoning, the observations and the plate note are all free text the model
         # wrote, and any of them can carry an escape that was never decoded.
@@ -184,8 +178,8 @@ if selected:
         if status == "explained" and detail:
             if not detail.get("flag_sustained", True):
                 st.warning(
-                    "The explainer did **not** sustain this flag — it read the evidence "
-                    "as not supporting the violation.",
+                    "The AI reviewer did **not** confirm this violation — it judged that the "
+                    "evidence does not support it.",
                     icon="🚫",
                 )
             st.markdown(detail["explanation"])
@@ -197,10 +191,10 @@ if selected:
                 unsafe_allow_html=True,
             )
             st.caption(
-                "Two independent gradings. Severity is the risk imposed on other "
-                "people; evidence strength is how much of the case the record itself "
-                "settles. A serious event the record barely supports is a real "
-                "combination, which is why they are never merged."
+                "Two separate ratings. Severity is how much risk the behaviour posed to other "
+                "road users; evidence strength is how well the recorded data supports the "
+                "violation. A serious event can have weak evidence, so they are shown "
+                "separately."
             )
 
             if detail.get("severity_basis"):
@@ -222,27 +216,26 @@ if selected:
                 st.markdown(ui.chip(plate["recoverability"]), unsafe_allow_html=True)
                 st.caption(plate["reasoning"])
                 st.caption(
-                    "A routing decision, never a plate. There is no ANPR anywhere in "
-                    "this system and no column to hold a read — so this says what "
-                    "could be done next, not what the plate says."
+                    "A suggestion for how the plate could be identified — not a plate reading. This "
+                    "system does not read license plates."
                 )
 
         elif status == "pending":
-            st.info("An explanation is running. Refresh, or use the button below.", icon="⏳")
+            st.info("The AI review is in progress. Use the button below to check for the result.", icon="⏳")
         elif status == "failed":
             st.error(
-                "The last attempt failed. Nothing retries on its own — asking again "
-                "is the retry.",
+                "The last attempt failed and is not retried automatically. Press the button "
+                "below to try again.",
                 icon="⚠️",
             )
         else:
-            ui.empty("Not explained yet.", "Nothing has spent a model call on this violation.")
+            ui.empty("Not reviewed yet.", "This violation has not been sent for AI review.")
 
         label = {
-            "detected": "Explain this violation",
-            "failed": "Try explaining again",
+            "detected": "Request AI review",
+            "failed": "Try AI review again",
             "explained": "Re-check status",
-            "pending": "Poll for the result",
+            "pending": "Check for the result",
         }[status]
 
         if st.button(label, type="primary", width="stretch"):
@@ -267,75 +260,72 @@ if selected:
                         time.sleep(0.6)
                         st.rerun()
                     box.info(
-                        f"Explaining… {int(deadline - time.time())}s before this stops "
-                        "polling. The model thinks before it answers.",
+                        f"Reviewing… {int(deadline - time.time())}s left of automatic checking. "
+                        "The AI review can take a minute or two.",
                         icon="⏳",
                     )
                     time.sleep(2)
                 else:
                     box.warning(
-                        "Still pending after three minutes. It is not lost — the status "
-                        "lands on the row whenever it finishes.",
+                        "Still in progress after three minutes. The result is not lost — it will appear "
+                        "here when ready, so check back later.",
                         icon="⌛",
                     )
 
         st.caption(
-            "Safe to press repeatedly: the first call spends money and every one after "
-            "it does not — an explained violation is handed back from the row, and a "
-            "pending one is left alone rather than queued twice."
+            "Safe to press more than once: a violation is only sent for review once, and a "
+            "finished review is simply shown again."
         )
 
     # ---- trajectories -----------------------------------------------------
 
     if tracks and colours:
         st.divider()
-        st.markdown("#### Trajectories")
+        st.markdown("#### Vehicle paths")
         st.caption(
-            "The paths are **not** drawn over the image, and that is deliberate. "
-            "`trajectory` is metres on the ground plane, not pixels — two objects the "
-            "same distance apart on screen are metres apart at the bottom of a frame "
-            "and tens of metres apart at the top. A ground-plane path drawn over a "
-            "perspective image would land somewhere plausible and wrong."
+            "Paths are shown on a top-down map in metres rather than over the video image, "
+            "because camera perspective distorts distance: the same on-screen gap can be a "
+            "few metres near the camera and tens of metres far away. **Positions and speeds "
+            "are estimates** based on the camera calibration."
         )
 
         fastest = evidence.implausible(tracks, colours)
         if fastest is not None:
             st.warning(
-                f"The fastest track here is **{fastest:.0f} m/s** — about "
-                f"{fastest * 3.6:.0f} km/h. That is not a speeding vehicle, it is a "
-                "calibration that does not hold: speeds are metres on the ground "
-                "plane, so a wrong projection scales every one of them together. The "
-                "boxes and the timings are unaffected — only anything derived from "
-                "the ground plane is.",
+                f"The fastest vehicle here is estimated at **{fastest:.0f} m/s** — about "
+                f"{fastest * 3.6:.0f} km/h, which is not realistic. This usually means the camera "
+                "calibration is inaccurate, which makes all speeds and positions on "
+                "this page unreliable. The detection itself and its timing are not "
+                "affected.",
                 icon="📐",
             )
 
         ground, speed = st.columns(2, gap="large")
         with ground:
-            st.markdown("**Ground plane, seen from above** (metres)")
+            st.markdown("**Top-down view of the road** (metres, estimated)")
             chart = evidence.ground_plot(tracks, colours, fps, moment)
             if chart is None:
                 st.info(
-                    "No ground-plane positions — this site had no calibration when the "
-                    "violation was found, so there was no projection to compute them with.",
+                    "No positions available — this site had no camera calibration when the "
+                    "violation was found, so positions could not be estimated.",
                     icon="📐",
                 )
             else:
                 st.altair_chart(chart, width="stretch")
-                st.caption("The diamond marks each track at the moment the rule fired.")
+                st.caption("The diamond marks each vehicle's position at the moment of the violation.")
 
         with speed:
-            st.markdown("**Speed over time** (m/s)")
+            st.markdown("**Estimated speed over time** (m/s)")
             chart = evidence.speed_plot(tracks, colours, fps, moment)
             if chart is None:
-                st.info("No speeds recorded for the selected tracks.", icon="📈")
+                st.info("No speeds available for the selected vehicles.", icon="📈")
             else:
                 st.altair_chart(chart, width="stretch")
 
         with st.expander("The same numbers, as a table"):
             st.dataframe(evidence.table(tracks, colours, fps), width="stretch", height=300)
 
-        with st.expander("Tracks in this violation"):
+        with st.expander("Vehicles in this violation"):
             for track in tracks:
                 mark = " ⚠️ **violator**" if track.track_id == violator_id else ""
                 st.markdown(
@@ -346,11 +336,11 @@ if selected:
                 )
             if violator_id is None:
                 st.caption(
-                    "No `violator_track_id` on this record — it was written before the "
-                    "field existed, so no single track is singled out."
+                    "This record does not mark which vehicle committed the violation — it was "
+                    "recorded before that information was stored."
                 )
 
-    with st.expander("Raw violation"):
+    with st.expander("Technical details"):
         st.json(violation)
 
     st.stop()
@@ -376,7 +366,7 @@ except (ApiError, ApiUnreachable) as exc:
     st.stop()
 
 if not page["items"]:
-    ui.empty("No violations recorded for this site.", "Queue a run on the Detection page.")
+    ui.empty("No violations recorded for this site.", "Start a run on the Detection page.")
     st.stop()
 
 fps, _ = source_facts(site["id"], page["items"][0].get("source_id"))
@@ -402,11 +392,11 @@ for i, item in enumerate(page["items"]):
                         width="stretch",
                     )
                 except requests.RequestException:
-                    ui.empty("Thumbnail unavailable")
+                    ui.empty("Image unavailable")
             else:
                 ui.empty(
                     "No thumbnail",
-                    "still cutting" if item.get("evidence_status") == "pending" else "none was built",
+                    "still being prepared" if item.get("evidence_status") == "pending" else "no image",
                 )
 
             st.markdown(f"**{item['type'].replace('_', ' ').title()}**")

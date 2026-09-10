@@ -57,17 +57,17 @@ def upload_and_attach(uploaded, file_type: str, attach) -> None:
                 if note:
                     st.write(note)
 
-            st.write("**1/4** Reserving a key and asking for an upload URL…")
+            st.write("**1/4** Preparing the upload…")
             reserved = client.create_file(name, file_type, len(data), content_type)
-            st.write(f"File `{reserved['id']}` reserved, status `{reserved['status']}`.")
+            st.write("Upload prepared.")
 
-            st.write("**2/4** PUTting the bytes straight to object storage…")
+            st.write("**2/4** Uploading the file…")
             client.put_object(reserved["upload_url"], data, content_type)
-            st.write("Object storage accepted the upload.")
+            st.write("File uploaded.")
 
-            st.write("**3/4** Confirming the upload with the API…")
+            st.write("**3/4** Checking the upload…")
             confirmed = client.complete_upload(reserved["id"])
-            st.write(f"File is now `{confirmed['status']}`.")
+            st.write("Upload checked.")
 
             st.write("**4/4** Attaching it to the site…")
             result = attach(confirmed["id"])
@@ -133,9 +133,9 @@ with calibration_tab:
         "calibrations",
         "calibration",
         "Camera calibration",
-        "An OpenCV FileStorage camera model. It is what turns pixel boxes into "
-        "positions on the ground plane, so without one a violation has boxes but no "
-        "trajectory and no speed. Units are metres, throughout.",
+        "The camera calibration file. It converts positions in the video image into "
+        "real positions on the road, in metres. Without it, violations can still be "
+        "detected, but vehicle paths and speeds cannot be estimated.",
         ["yml", "yaml", "xml", "json"],
     )
 
@@ -144,19 +144,17 @@ with configuration_tab:
         "configurations",
         "configuration",
         "Scene configuration",
-        "Which rules to run, and the polygons they run against. Sections are explicit "
-        "— a region is a lane because it is in `lanes`, never because of what it is "
-        "named — and `controls` is what says which lanes a traffic light governs.",
+        "Which rules to check, and the road areas (polygons) they apply to. An area "
+        "counts as a lane only when it is listed under `lanes`, whatever its name, and "
+        "`controls` sets which lanes each traffic light governs.",
         ["json"],
     )
 
     with st.expander("Starter document"):
         st.caption(
-            "The only format the detector understands is version 1, and it refuses "
-            "anything else rather than parsing the parts it recognises. Unknown "
-            "section names are rejected too: a typo like `roi` for `rois` would "
-            "otherwise silently drop every polygon in it, and the only symptom would "
-            "be a rule that never fires. A polygon needs at least three points."
+            "Start from this template. Only format version 1 is accepted, and unknown "
+            "section names are rejected — so a misspelt section name gives an error instead "
+            "of silently disabling a rule. Each area needs at least three corner points."
         )
         starter = {
             "version": 1,
@@ -181,9 +179,8 @@ with configuration_tab:
 with source_tab:
     st.markdown("#### Active source")
     st.caption(
-        "Attaching a source appends a version rather than replacing one, so what the "
-        "site used to point at stays on record — and a detection job already in the "
-        "queue keeps reading the video it was created for."
+        "Adding a new video keeps the previous ones on record. A detection run that has "
+        "already started keeps using the video it started with."
     )
 
     try:
@@ -211,34 +208,31 @@ with source_tab:
             # backend is the one detection asks. Saying so here is the difference
             # between a reader who understands the 409 and one who thinks it is a bug.
             st.warning(
-                "The frame count is this page's estimate (duration × fps) — the "
-                "container stored none, so the API has no `total_frames` and "
-                "**detection will refuse this source with a 409**. Re-attach the video "
-                "to have it remuxed to MP4, which carries a real count.",
+                "The number of frames shown is estimated from the video length and frame rate, "
+                "because this video file does not record it. **Detection cannot run on this "
+                "video.** Upload it again and it will be converted to MP4 automatically, which "
+                "fixes this.",
                 icon="⚠️",
             )
         st.caption(f"source `{source['id']}`")
     else:
-        st.info("No source attached. Detection has nothing to run against.", icon="🎥")
+        st.info("No video attached yet. Detection needs a video to run.", icon="🎥")
 
     st.divider()
-    video, stream = st.tabs(["Upload a video", "Point at a stream"])
+    video, stream = st.tabs(["Upload a video", "Use a live camera feed"])
 
     with video:
         st.caption(
-            "The video is probed as it is attached — the container header is read over "
-            "range requests, a couple of megabytes whatever the file's size — so a file "
-            "that cannot be decoded is refused now rather than failing every detection "
-            "job later."
+            "The video is checked when it is added, so a file that cannot be read is "
+            "rejected now rather than failing detection later."
         )
         st.caption(
-            "A container that records no frame count (Matroska does not) is remuxed to "
-            "MP4 first, with `-c copy` — no re-encode and no quality change. Without a "
-            "frame count the source attaches but detection answers 409, so this happens "
-            "before the upload rather than being discovered afterwards."
+            "Some video formats (such as MKV) do not record how many frames they contain, "
+            "which detection needs. These are converted to MP4 automatically before "
+            "uploading, with no loss of quality."
         )
         uploaded = st.file_uploader("Video file", type=["mp4", "mov", "mkv", "avi"], key="up_video")
-        if uploaded and st.button("Upload and attach as source", type="primary", key="btn_video"):
+        if uploaded and st.button("Upload and use this video", type="primary", key="btn_video"):
             upload_and_attach(
                 uploaded,
                 "video",
@@ -247,13 +241,11 @@ with source_tab:
 
     with stream:
         st.caption(
-            "A stream is neither checked nor probed here: it carries no index to read, "
-            "and connecting to a live feed would block on a camera that may not be up "
-            "yet. Note that detection runs on videos — a stream has no frame count to "
-            "bound a job with, and the detect endpoint answers 409."
+            "A live camera feed is not checked when added. Note that detection currently "
+            "works only on uploaded videos, not live feeds."
         )
         url = st.text_input("Stream URL", placeholder="rtsp://…", key="stream_url_input")
-        if url and st.button("Attach stream", key="btn_stream"):
+        if url and st.button("Add live feed", key="btn_stream"):
             try:
                 result = client.create_source(site["id"], "stream", stream_url=url.strip())
             except (ApiError, ApiUnreachable) as exc:
@@ -271,9 +263,9 @@ st.markdown("#### Ready to detect?")
 
 try:
     checks = [
-        ("Video source attached", bool(source and source.get("kind") == "video")),
+        ("Video attached", bool(source and source.get("kind") == "video")),
         (
-            "Video metadata probed",
+            "Video checked",
             bool(source and (source.get("metadata") or {}).get("total_frames")),
         ),
         ("Configuration attached", client.get_active_doc(site["id"], "configurations") is not None),
@@ -287,9 +279,9 @@ for label, ok in checks:
     st.markdown(f"{'✅' if ok else '⬜'} {label}")
 
 st.caption(
-    "The first two are enforced — detection answers 409 without them. A configuration "
-    "and a calibration are not: a job runs without either, it just has fewer rules it "
-    "can evaluate and no ground-plane trajectory to show for it."
+    "The first two are required before detection can run. Configuration and "
+    "calibration are optional, but without them fewer rules can be checked, and "
+    "vehicle paths and speeds cannot be estimated."
 )
 
 if all(ok for _, ok in checks[:2]) and st.button("Go to Detection →", type="primary"):

@@ -131,9 +131,9 @@ def sidebar() -> Api:
     with st.sidebar:
         st.markdown("### Traffic Violation Console")
         st.text_input(
-            "API base URL",
+            "Server address",
             key="base_url",
-            help="site-service. The compose stack publishes it on 127.0.0.1:8001.",
+            help="Address of the traffic violation server. Leave as is unless told otherwise.",
         )
 
         client = api()
@@ -143,7 +143,7 @@ def sidebar() -> Api:
             st.caption(f"Using `{client.base_url}`")
         try:
             client.health()
-            st.success("API reachable", icon="✅")
+            st.success("Connected to server", icon="✅")
         except (ApiError, ApiUnreachable) as exc:
             st.error(f"{exc}", icon="🔌")
 
@@ -289,13 +289,13 @@ def error(exc: Exception) -> None:
         return
     if isinstance(exc, ApiError):
         hint = {
-            404: "Nothing at that id — it may have been deleted, or belong to another site.",
-            409: "The request is fine; the resource is not in a state where it means anything yet.",
-            413: "Larger than the server's upload cap (S3_MAX_UPLOAD_BYTES).",
-            422: "The body was rejected by validation.",
-            502: "The server could not reach something it depends on. Worth retrying.",
+            404: "Not found — it may have been deleted, or belong to another site.",
+            409: "This cannot be done yet — a required step is still missing.",
+            413: "The file is larger than the upload size limit.",
+            422: "Some of the information entered is not valid.",
+            502: "The server is temporarily unable to complete this. Please try again.",
         }.get(exc.status)
-        st.error(f"**{exc.status}** — {exc.detail}" + (f"\n\n{hint}" if hint else ""), icon="🚫")
+        st.error(f"{exc.detail}" + (f"\n\n{hint}" if hint else ""), icon="🚫")
         return
     st.error(str(exc), icon="❌")
 

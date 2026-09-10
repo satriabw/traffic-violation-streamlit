@@ -25,11 +25,10 @@ client = ui.sidebar()
 
 st.title("📁 Files")
 st.caption(
-    "Reserve a key, PUT the bytes straight to object storage, then confirm. File bytes "
-    "never pass through the API — it only ever hands out signed URLs."
+    "Upload a file, or look up one that was uploaded earlier."
 )
 
-upload_tab, lookup_tab = st.tabs(["Upload", "Look up by id"])
+upload_tab, lookup_tab = st.tabs(["Upload", "Find by ID"])
 
 # ---------------------------------------------------------------------------
 # Upload
@@ -41,9 +40,8 @@ with upload_tab:
         "Type",
         FILE_TYPES,
         help=(
-            "Not cosmetic — it decides the key the object is stored under, and the "
-            "endpoints that reference a file check it. A configuration attached from a "
-            "file typed `video` is refused."
+            "Choose what the file is. It must match how the file will be used — for "
+            "example, a file marked as video cannot be used as a configuration."
         ),
     )
 
@@ -55,20 +53,16 @@ with upload_tab:
         if st.button("Upload", type="primary"):
             with st.status("Uploading", expanded=True) as box:
                 try:
-                    st.write("**1/3** Reserving a key…")
+                    st.write("**1/3** Preparing the upload…")
                     reserved = client.create_file(uploaded.name, file_type, len(data), content_type)
-                    st.write(f"`{reserved['id']}` — status `{reserved['status']}`")
-                    st.caption(
-                        f"The URL is good for {reserved['upload_expires_in']}s. It is a "
-                        "spending authorisation, which is why the size cap is applied "
-                        "when it is issued rather than after the bytes have arrived."
-                    )
+                    st.write(f"File ID `{reserved['id']}`")
+                    st.caption(f"The upload link is valid for {reserved['upload_expires_in']} seconds.")
 
-                    st.write("**2/3** PUTting to object storage…")
+                    st.write("**2/3** Uploading…")
                     client.put_object(reserved["upload_url"], data, content_type)
                     st.write("Accepted.")
 
-                    st.write("**3/3** Confirming…")
+                    st.write("**3/3** Checking the upload…")
                     confirmed = client.complete_upload(reserved["id"])
                 except (ApiError, ApiUnreachable) as exc:
                     box.update(label="Upload failed", state="error")
@@ -85,7 +79,7 @@ with upload_tab:
     if recent:
         st.divider()
         st.markdown("#### Uploaded in this session")
-        st.caption("This session's memory — the API has no endpoint that lists files.")
+        st.caption("Only files uploaded since this page was opened are listed here.")
         for file in recent:
             with st.container(border=True):
                 cols = st.columns([3, 1, 1, 1])
@@ -116,13 +110,12 @@ with lookup_tab:
                 f"key `{file['url']}` · created {ui.ts(file['created_at'])}"
             )
             st.caption(
-                "`url` is the object key, not a URL — the column name is inherited from "
-                "the design. `download_url` below is signed fresh on every read, which "
-                "is why it is never stored."
+                "`url` is where the file is stored, not a web link. Use the button below to "
+                "download it."
             )
 
             if file.get("download_url"):
-                st.link_button("Open the signed download URL", file["download_url"])
+                st.link_button("Download file", file["download_url"])
                 if file["type"] == "video":
                     st.video(file["download_url"])
             st.json(file, expanded=False)

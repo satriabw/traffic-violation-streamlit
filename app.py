@@ -25,8 +25,8 @@ client = ui.sidebar()
 
 st.title("🚦 Traffic Violation Console")
 st.caption(
-    "An operator front end for site-service — sites, evidence uploads, detection runs, "
-    "and the violation review queue."
+    "Manage camera sites, upload video, run violation detection, and review the "
+    "violations found."
 )
 
 try:
@@ -75,12 +75,12 @@ a.metric("Sites", len(sites))
 b.metric("Violations", totals["total"])
 c.metric("Awaiting review", totals["detected"])
 d.metric("Explained", totals["explained"])
-e.metric("Explain failed", totals["failed"])
+e.metric("AI review failed", totals["failed"])
 
 if totals["pending"]:
     st.info(
-        f"{totals['pending']} explanation(s) still running. "
-        "The Violations page polls until they land.",
+        f"{totals['pending']} AI review(s) still in progress. "
+        "The Violations page updates automatically when they finish.",
         icon="⏳",
     )
 
@@ -106,11 +106,11 @@ for row in rows:
                     bits.append(f"{metadata['duration_seconds']:.1f}s")
                 st.caption(" · ".join(bits))
             else:
-                st.caption("No source attached")
+                st.caption("No video attached")
 
         with right:
             st.markdown(
-                ui.labelled_chip("source", source.get("status") if source else None)
+                ui.labelled_chip("video", source.get("status") if source else None)
                 + "&nbsp;&nbsp;&nbsp;"
                 + f'<span style="color:#64748b;font-size:0.78rem;">violations</span> '
                 + f'<b style="font-size:1.05rem;">{row["violations"]}</b>',

@@ -18,7 +18,7 @@ st.set_page_config(page_title="Sites", page_icon="🏢", layout="wide")
 client = ui.sidebar()
 
 st.title("🏢 Sites")
-st.caption("A site is a durable camera location. Nothing per-run lives on it — that is the source.")
+st.caption("A site is a fixed camera location. Its video is added separately, on Site Setup.")
 
 # ---------------------------------------------------------------------------
 # Create
@@ -28,15 +28,13 @@ with st.expander("Create a site", expanded=False):
     with st.form("create_site"):
         name = st.text_input("Name", placeholder="Jl. Sudirman — north approach")
         st.caption(
-            "A site with no source is valid; the video can be attached later on "
-            "Site Setup. Creating one with a source inline runs the same validation "
-            "and the same probe, so nothing is skipped by doing it here."
+            "You can create a site now and add its video later on Site Setup."
         )
-        attach = st.checkbox("Attach a stream URL now")
+        attach = st.checkbox("Add a live camera feed link now")
         stream_url = st.text_input("Stream URL", placeholder="rtsp://…", disabled=not attach)
         st.caption(
-            "Only a stream can be attached at creation — a video source needs a file "
-            "that has already been uploaded, which is what Site Setup is for."
+            "Only a live camera feed can be added here. To use a recorded video, upload it "
+            "on Site Setup."
         )
         submitted = st.form_submit_button("Create site", type="primary")
 
@@ -62,9 +60,9 @@ with st.expander("Create a site", expanded=False):
 
 filters = st.columns([1, 1, 1, 3])
 kind = filters[0].selectbox("Source kind", ["(any)", *SOURCE_KINDS])
-status = filters[1].selectbox("Source status", ["(any)", *SOURCE_STATUSES])
+status = filters[1].selectbox("Video status", ["(any)", *SOURCE_STATUSES])
 per_page = filters[2].selectbox("Per page", [10, 20, 50, 100], index=1)
-st.caption("Both filters match the site's **active** source, not its whole history.")
+st.caption("Filters apply to the site's current video only.")
 
 st.session_state.setdefault("sites_offset", 0)
 
@@ -101,7 +99,7 @@ for site in page["items"]:
                 st.toast(f"Selected {site['name']}")
 
         cols = st.columns(4)
-        cols[0].markdown(ui.labelled_chip("source", source.get("status") if source else None), unsafe_allow_html=True)
+        cols[0].markdown(ui.labelled_chip("video", source.get("status") if source else None), unsafe_allow_html=True)
         cols[1].caption(f"kind · {source.get('kind', '—')}")
         cols[2].caption(f"version · {source.get('version', '—')}")
         cols[3].caption(f"created · {ui.ts(site['created_at'], with_seconds=False)}")
@@ -124,9 +122,8 @@ for site in page["items"]:
 
         with st.expander("Delete"):
             st.caption(
-                "A site with recorded violations cannot be deleted — the API answers "
-                "409 and deletes nothing. That is deliberate: clearing the violations "
-                "has to be a separate, deliberate act."
+                "A site that has recorded violations cannot be deleted. This is intentional, so "
+                "violation records are never removed by accident."
             )
             confirm = st.text_input(
                 "Type the site name to confirm", key=f"confirm_{site['id']}", label_visibility="collapsed",
