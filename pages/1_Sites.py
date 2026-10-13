@@ -11,7 +11,7 @@ from __future__ import annotations
 import streamlit as st
 
 from lib import ui
-from lib.api import SOURCE_KINDS, SOURCE_STATUSES, ApiError, ApiUnreachable
+from lib.api import SOURCE_KINDS, ApiError, ApiUnreachable
 
 st.set_page_config(page_title="Sites", page_icon="🏢", layout="wide")
 
@@ -60,11 +60,10 @@ with st.expander("Create a site", expanded=False):
 # List
 # ---------------------------------------------------------------------------
 
-filters = st.columns([1, 1, 1, 3])
+filters = st.columns([1, 1, 4])
 kind = filters[0].selectbox("Source kind", ["(any)", *SOURCE_KINDS])
-status = filters[1].selectbox("Source status", ["(any)", *SOURCE_STATUSES])
-per_page = filters[2].selectbox("Per page", [10, 20, 50, 100], index=1)
-st.caption("Both filters match the site's **active** source, not its whole history.")
+per_page = filters[1].selectbox("Per page", [10, 20, 50, 100], index=1)
+st.caption("The filter matches the site's **active** source, not its whole history.")
 
 st.session_state.setdefault("sites_offset", 0)
 
@@ -73,7 +72,6 @@ try:
         limit=per_page,
         offset=st.session_state["sites_offset"],
         kind=None if kind == "(any)" else kind,
-        status=None if status == "(any)" else status,
     )
 except (ApiError, ApiUnreachable) as exc:
     ui.error(exc)

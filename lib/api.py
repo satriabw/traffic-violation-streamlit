@@ -29,14 +29,6 @@ API_PREFIX = "/api/v1"
 VIOLATION_TYPES = ("red_light_running", "pedestrian_right_of_way")
 FILE_TYPES = ("calibration", "configuration", "video", "evidence_frame")
 SOURCE_KINDS = ("video", "stream")
-SOURCE_STATUSES = (
-    "created",
-    "active",
-    "degraded",
-    "processing",
-    "completed",
-    "failed",
-)
 
 
 class ApiError(Exception):
@@ -144,16 +136,12 @@ class Api:
         limit: int = 20,
         offset: int = 0,
         kind: str | None = None,
-        status: str | None = None,
     ) -> dict:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        # kind and status describe the site's *active* source, not its history — see
-        # the docstring on the route. Omitted rather than sent as None so an unset
-        # filter is absent from the query string entirely.
+        # kind describes the site's *active* source, not its history. Omitted rather than
+        # sent as None so an unset filter is absent from the query string entirely.
         if kind:
             params["kind"] = kind
-        if status:
-            params["status"] = status
         return self._request("GET", "/sites", params=params)
 
     def all_sites(self, page: int = 100) -> list[dict]:
