@@ -84,7 +84,7 @@ if selected:
 
     st.title(violation["type"].replace("_", " ").title())
     st.markdown(
-        ui.labelled_chip("explanation", violation["status"])
+        ui.labelled_chip("explanation", violation["explanation_status"])
         + "&nbsp;&nbsp;&nbsp;"
         + ui.labelled_chip("evidence", violation.get("evidence_status"))
         + "&nbsp;&nbsp;&nbsp;"
@@ -179,7 +179,7 @@ if selected:
         # of reasoning, the observations and the plate note are all free text the model
         # wrote, and any of them can carry an escape that was never decoded.
         detail = ui.unescape(violation.get("explanation_detail"))
-        status = violation["status"]
+        status = violation["explanation_status"]
 
         if status == "explained" and detail:
             if not detail.get("flag_sustained", True):
@@ -262,8 +262,8 @@ if selected:
                     except (ApiError, ApiUnreachable) as exc:
                         ui.error(exc)
                         break
-                    if current["status"] != "pending":
-                        box.success(f"Finished: {current['status']}.", icon="✅")
+                    if current["explanation_status"] != "pending":
+                        box.success(f"Finished: {current['explanation_status']}.", icon="✅")
                         time.sleep(0.6)
                         st.rerun()
                     box.info(
@@ -383,7 +383,7 @@ fps, _ = source_facts(site["id"], page["items"][0].get("source_id"))
 
 counts: dict[str, int] = {}
 for item in page["items"]:
-    counts[item["status"]] = counts.get(item["status"], 0) + 1
+    counts[item["explanation_status"]] = counts.get(item["explanation_status"], 0) + 1
 st.markdown(
     " ".join(ui.chip(status, f"{status} {n}") for status, n in counts.items()),
     unsafe_allow_html=True,
@@ -411,7 +411,7 @@ for i, item in enumerate(page["items"]):
 
             st.markdown(f"**{item['type'].replace('_', ' ').title()}**")
             st.markdown(
-                ui.chip(item["status"])
+                ui.chip(item["explanation_status"])
                 + "&nbsp;"
                 + ui.chip(item.get("evidence_status"))
                 + ("&nbsp;" + ui.chip(item["severity"]) if item.get("severity") else ""),

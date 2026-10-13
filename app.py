@@ -54,7 +54,7 @@ for site in sites:
         page = {"items": [], "total": 0}
     counts = {"detected": 0, "pending": 0, "explained": 0, "failed": 0}
     for violation in page["items"]:
-        counts[violation["status"]] = counts.get(violation["status"], 0) + 1
+        counts[violation["explanation_status"]] = counts.get(violation["explanation_status"], 0) + 1
     totals["total"] += page["total"]
     for key in counts:
         totals[key] += counts[key]
