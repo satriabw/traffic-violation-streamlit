@@ -216,7 +216,7 @@ def draw_boxes(
 
         text = track.label
         if track.track_id == violator_id:
-            text += " ⚠"
+            text += " · violator"
         speed = track.speed_at(frame_index)
         if speed is not None:
             # Kept short on purpose: a wide label is a label that collides. One

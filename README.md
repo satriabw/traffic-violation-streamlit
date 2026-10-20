@@ -19,18 +19,24 @@ Then this:
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env       # only if you need a non-default API_BASE_URL
-.venv/bin/streamlit run app.py
+.venv/bin/streamlit run serve.py
 ```
 
-It opens on <http://localhost:8501>. The API base URL is also editable in the sidebar,
-which shows a green tick when `/health` answers — so a misconfigured URL is visible
-immediately rather than as a failure on the first real call.
+It opens on <http://localhost:8501>. `serve.py` is `app.py` plus a `/storage/…` route
+that relays the backend's stored files (videos, clips, downloads) with byte ranges, so
+the browser only ever needs port 8501 — over an SSH tunnel, forward that one port.
+`streamlit run app.py` also works, but then the browser must reach the API itself.
+
+The API address is under **Connection** in the sidebar, next to a status dot that turns
+red when `/health` stops answering. Restart the server after changing anything under
+`lib/`: Streamlit reruns a page on change, but keeps imported modules it already loaded.
 
 ## The pages
 
 | Page | What it does | Endpoints |
 |---|---|---|
-| **Overview** | Every site with its source and violation counts | `GET /sites`, `GET .../violations` |
+| **Overview** | Key figures, violations per day and per site, sites table, recent runs | `GET /sites`, `GET .../violations`, `GET .../runs` |
+| **Site view** | The current video or live feed with the configuration's regions overlaid, per layer | `GET .../sources`, `GET .../configurations`, `GET /files/{id}` |
 | **Sites** | Create, filter, select, delete | `GET/POST /sites`, `GET/DELETE /sites/{id}` |
 | **Site Setup** | Upload + attach calibration, configuration, source; invalidate a wrong document's runs; readiness checklist | `POST /files`, presigned `PUT`, `POST /files/{id}/complete`, `GET/POST .../calibrations`, `.../configurations`, `POST .../{id}/invalidate`, `.../sources` |
 | **Detection** | Start a session on a video or live feed, stop a feed, watch its runs | `POST /sites/{id}/detect`, `POST .../sources/{id}/stop`, `GET .../runs` |

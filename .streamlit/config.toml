@@ -1,9 +1,33 @@
 [theme]
 base = "light"
-primaryColor = "#2563eb"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+codeFont = "monospace"
+baseFontSize = 14
+primaryColor = "#256abf"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f5f9"
-textColor = "#0f172a"
+secondaryBackgroundColor = "#f4f4f2"
+textColor = "#1a1a19"
+linkColor = "#256abf"
+borderColor = "#e1e0d9"
+dataframeBorderColor = "#e1e0d9"
+dataframeHeaderBackgroundColor = "#f7f7f5"
+showWidgetBorder = true
+baseRadius = "6px"
+buttonRadius = "6px"
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+headingFontSizes = ["1.6rem", "1.15rem", "1rem", "0.95rem", "0.9rem", "0.85rem"]
+metricValueFontSize = "1.75rem"
+metricValueFontWeight = 600
+showSidebarBorder = true
+# The categorical slots, in the validated fixed order.
+chartCategoricalColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
+
+[theme.sidebar]
+backgroundColor = "#f7f7f5"
+secondaryBackgroundColor = "#ffffff"
+
+[client]
+toolbarMode = "minimal"
 
 [server]
 maxUploadSize = 512

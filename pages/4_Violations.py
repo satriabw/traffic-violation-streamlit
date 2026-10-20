@@ -21,13 +21,12 @@ import streamlit as st
 from lib import evidence, ui
 from lib.api import ApiError, ApiUnreachable
 
-st.set_page_config(page_title="Violations", page_icon="🚨", layout="wide")
 
 client = ui.sidebar()
 site = ui.site_selector(client)
 
 if site is None:
-    st.title("🚨 Violations")
+    ui.page_header("Violations", eyebrow="Monitoring")
     ui.empty("Pick a site in the sidebar.")
     st.stop()
 
@@ -48,12 +47,7 @@ def fetch_bytes(cache_key: str, _url: str) -> bytes:
 
 def source_facts(site_id: str, source_id: str | None) -> tuple[float | None, tuple[int, int] | None]:
     """fps and resolution for the source this violation was found in."""
-    if not source_id:
-        return None, None
-    try:
-        source = client.get_source(site_id, source_id)
-    except (ApiError, ApiUnreachable):
-        return None, None
+    source = ui.source_of(client, site_id, source_id)
     metadata = (source or {}).get("metadata") or {}
     resolution = metadata.get("resolution") or {}
     size = (resolution["width"], resolution["height"]) if resolution.get("width") else None
@@ -67,7 +61,7 @@ def source_facts(site_id: str, source_id: str | None) -> tuple[float | None, tup
 selected = st.session_state.get("violation_id")
 
 if selected:
-    if st.button("← Back to the list"):
+    if st.button("Back to the list"):
         st.session_state.pop("violation_id")
         st.rerun()
 
@@ -82,7 +76,12 @@ if selected:
     frame_index = violation.get("frame_index")
     moment = frame_index / fps if (frame_index is not None and fps) else None
 
-    st.title(violation["type"].replace("_", " ").title())
+    source = ui.source_of(client, site["id"], violation.get("source_id"))
+    ui.page_header(
+        violation["type"].replace("_", " ").capitalize(),
+        ui.event_time(source, frame_index, violation["detected_at"]),
+        eyebrow=f"Violation · {site['name']}",
+    )
     st.markdown(
         ui.labelled_chip("explanation", violation["explanation_status"])
         + "&nbsp;&nbsp;&nbsp;"
@@ -92,8 +91,8 @@ if selected:
         unsafe_allow_html=True,
     )
     st.caption(
-        f"`{violation['id']}` · detected {ui.ts(violation['detected_at'])} · "
-        f"{ui.frame_time(frame_index, fps)}"
+        f"`{violation['id']}` · {ui.frame_time(frame_index, fps)} · "
+        f"processed {ui.ts(violation['detected_at'])}"
     )
 
     def _version(label: str, version: int | None) -> str:
@@ -117,7 +116,7 @@ if selected:
         st.info(
             "No evidence clip exists for this violation — it was recorded before evidence "
             "clips were introduced, so none will be created.",
-            icon="🗃️",
+            icon=":material/inventory_2:",
         )
 
     media, verdict = st.columns([3, 2], gap="large")
@@ -146,7 +145,7 @@ if selected:
             if len(chosen) > len(evidence.SERIES):
                 st.warning(
                     f"Showing the first {len(evidence.SERIES)} — see the help above.",
-                    icon="🎨",
+                    icon=":material/palette:",
                 )
                 chosen = chosen[: len(evidence.SERIES)]
             colours = evidence.colour_map(chosen)
@@ -157,7 +156,7 @@ if selected:
             try:
                 raw = fetch_bytes(violation["thumbnail_key"], client.absolute(violation["thumbnail_url"]))
             except requests.RequestException as exc:
-                st.error(f"Could not load the image: {exc}", icon="🖼️")
+                st.error(f"Could not load the image: {exc}", icon=":material/broken_image:")
             else:
                 if tracks:
                     st.image(
@@ -171,13 +170,13 @@ if selected:
                 else:
                     st.image(raw, width="stretch")
         elif violation.get("evidence_status") == "pending":
-            st.info("The image is still being prepared.", icon="⏳")
+            st.info("The image is still being prepared.", icon=":material/hourglass_top:")
         elif violation.get("evidence_status") == "failed":
-            st.warning("The evidence clip could not be created for this violation.", icon="✂️")
+            st.warning("The evidence clip could not be created for this violation.", icon=":material/content_cut:")
 
         if violation.get("clip_url"):
             st.markdown("**Clip**")
-            st.video(client.absolute(violation["clip_url"]))
+            st.video(ui.browser_url(client, violation["clip_url"]))
             st.caption(
                 "The clip covers the same time span as the violation record."
             )
@@ -197,7 +196,7 @@ if selected:
                 st.warning(
                     "The AI reviewer did **not** confirm this violation — it judged that the "
                     "evidence does not support it.",
-                    icon="🚫",
+                    icon=":material/block:",
                 )
             st.markdown(detail["explanation"])
 
@@ -238,12 +237,12 @@ if selected:
                 )
 
         elif status == "pending":
-            st.info("The AI review is in progress. Use the button below to check for the result.", icon="⏳")
+            st.info("The AI review is in progress. Use the button below to check for the result.", icon=":material/hourglass_top:")
         elif status == "failed":
             st.error(
                 "The last attempt failed and is not retried automatically. Press the button "
                 "below to try again.",
-                icon="⚠️",
+                icon=":material/warning:",
             )
         else:
             ui.empty("Not reviewed yet.", "This violation has not been sent for AI review.")
@@ -273,20 +272,20 @@ if selected:
                         ui.error(exc)
                         break
                     if current["explanation_status"] != "pending":
-                        box.success(f"Finished: {current['explanation_status']}.", icon="✅")
+                        box.success(f"Finished: {current['explanation_status']}.", icon=":material/check_circle:")
                         time.sleep(0.6)
                         st.rerun()
                     box.info(
                         f"Reviewing… {int(deadline - time.time())}s left of automatic checking. "
                         "The AI review can take a minute or two.",
-                        icon="⏳",
+                        icon=":material/hourglass_top:",
                     )
                     time.sleep(2)
                 else:
                     box.warning(
                         "Still in progress after three minutes. The result is not lost — it will appear "
                         "here when ready, so check back later.",
-                        icon="⌛",
+                        icon=":material/hourglass_bottom:",
                     )
 
         st.caption(
@@ -314,7 +313,7 @@ if selected:
                 "calibration is inaccurate, which makes all speeds and positions on "
                 "this page unreliable. The detection itself and its timing are not "
                 "affected.",
-                icon="📐",
+                icon=":material/straighten:",
             )
 
         ground, speed = st.columns(2, gap="large")
@@ -325,7 +324,7 @@ if selected:
                 st.info(
                     "No positions available — this site had no camera calibration when the "
                     "violation was found, so positions could not be estimated.",
-                    icon="📐",
+                    icon=":material/straighten:",
                 )
             else:
                 st.altair_chart(chart, width="stretch")
@@ -335,7 +334,7 @@ if selected:
             st.markdown("**Estimated speed over time** (m/s)")
             chart = evidence.speed_plot(tracks, colours, fps, moment)
             if chart is None:
-                st.info("No speeds available for the selected vehicles.", icon="📈")
+                st.info("No speeds available for the selected vehicles.", icon=":material/show_chart:")
             else:
                 st.altair_chart(chart, width="stretch")
 
@@ -344,7 +343,7 @@ if selected:
 
         with st.expander("Vehicles in this violation"):
             for track in tracks:
-                mark = " ⚠️ **violator**" if track.track_id == violator_id else ""
+                mark = " · :red[**violator**]" if track.track_id == violator_id else ""
                 st.markdown(
                     f"- `{track.label}` — {len(track.frame_idxs)} samples, "
                     f"frames {track.frame_idxs[0]}–{track.frame_idxs[-1]}{mark}"
@@ -366,11 +365,10 @@ if selected:
 # Gallery
 # ===========================================================================
 
-st.title("🚨 Violations")
-st.caption(
-    f"**{site['name']}** — the current violations: a newer run replaces an older one's "
-    "only where it covers the same frames and type, and runs judged under a document "
-    "later marked invalid are left out."
+ui.page_header(
+    "Violations",
+    "Current violations for this site. Runs judged under a document later marked invalid are left out.",
+    eyebrow=f"Monitoring · {site['name']}",
 )
 
 st.session_state.setdefault("violations_offset", 0)
@@ -382,7 +380,7 @@ try:
 except (ApiError, ApiUnreachable):
     runs = []
 run_labels = {
-    r["id"]: f"{ui.ts(r['created_at'], with_seconds=False)} · {ui.run_frames(r)} · {r['status']}"
+    r["id"]: f"{ui.run_span(ui.source_of(client, site['id'], r.get('source_id')), r)} · {r['status']}"
     for r in runs
 }
 run_id = controls[1].selectbox(
@@ -407,8 +405,6 @@ if not page["items"]:
         "Start a run on the Detection page.",
     )
     st.stop()
-
-fps, _ = source_facts(site["id"], page["items"][0].get("source_id"))
 
 counts: dict[str, int] = {}
 for item in page["items"]:
@@ -438,7 +434,7 @@ for i, item in enumerate(page["items"]):
                     "still being prepared" if item.get("evidence_status") == "pending" else "no image",
                 )
 
-            st.markdown(f"**{item['type'].replace('_', ' ').title()}**")
+            st.markdown(f"**{item['type'].replace('_', ' ').capitalize()}**")
             st.markdown(
                 ui.chip(item["explanation_status"])
                 + "&nbsp;"
@@ -447,7 +443,11 @@ for i, item in enumerate(page["items"]):
                 unsafe_allow_html=True,
             )
             st.caption(
-                f"{ui.frame_time(item.get('frame_index'), fps)} · {ui.ts(item['detected_at'], with_seconds=False)}"
+                ui.event_time(
+                    ui.source_of(client, site["id"], item.get("source_id")),
+                    item.get("frame_index"),
+                    item["detected_at"],
+                )
             )
             if item.get("explanation"):
                 # Before truncating, not after: an escape straddling the cut would
@@ -461,11 +461,11 @@ for i, item in enumerate(page["items"]):
 
 st.divider()
 back, forward = st.columns(2)
-if back.button("← Previous", disabled=page["offset"] == 0, width="stretch"):
+if back.button("Previous", disabled=page["offset"] == 0, width="stretch"):
     st.session_state["violations_offset"] = max(0, page["offset"] - per_page)
     st.rerun()
 if forward.button(
-    "Next →",
+    "Next",
     disabled=page["offset"] + len(page["items"]) >= page["total"],
     width="stretch",
 ):

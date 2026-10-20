@@ -22,18 +22,16 @@ import streamlit as st
 from lib import ui, video as videolib
 from lib.api import ApiError, ApiUnreachable
 
-st.set_page_config(page_title="Site Setup", page_icon="⚙️", layout="wide")
 
 client = ui.sidebar()
 site = ui.site_selector(client)
 
-st.title("⚙️ Site Setup")
+ui.page_header("Site setup", "Calibration, scene configuration and source for the selected site.", eyebrow=f"Setup · {site['name']}" if site else "Setup")
 
 if site is None:
     ui.empty("Pick a site in the sidebar.", "Or create one on the Sites page.")
     st.stop()
 
-st.caption(f"Configuring **{site['name']}** · `{site['id']}`")
 
 
 def upload_and_attach(uploaded, file_type: str, attach) -> None:
@@ -125,7 +123,7 @@ def versioned_section(resource: str, file_type: str, title: str, blurb: str, typ
                 else:
                     st.success(f"{n} run(s) marked invalid.")
     else:
-        st.info(f"No {resource[:-1]} attached yet.", icon="📄")
+        st.info(f"No {resource[:-1]} attached yet.", icon=":material/description:")
 
     uploaded = st.file_uploader(
         f"Upload a new {resource[:-1]}",
@@ -145,7 +143,7 @@ def versioned_section(resource: str, file_type: str, title: str, blurb: str, typ
 
 
 calibration_tab, configuration_tab, source_tab = st.tabs(
-    ["Calibration", "Configuration", "Video source"]
+    ["Calibration", "Configuration", "Source"]
 )
 
 with calibration_tab:
@@ -224,9 +222,12 @@ with source_tab:
         cols[2].metric("Frames", frames)
         cols[3].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
         if resolution.get("width"):
+            # A live feed has no duration: the key is there, but null.
+            duration = metadata.get("duration_seconds")
             st.caption(
                 f"{resolution['width']}×{resolution['height']} · "
-                f"{metadata.get('duration_seconds', 0):.2f}s · kind `{source['kind']}`"
+                + (f"{duration:.2f}s · " if duration is not None else "")
+                + f"kind `{source['kind']}`"
             )
         if estimated:
             # The number is this page's arithmetic, not the backend's, so it is
@@ -235,11 +236,22 @@ with source_tab:
                 "The number of frames shown is estimated from the video length and frame rate, "
                 "because this video file does not record it. Detection still runs: frames "
                 "are counted as the video is cut into pieces.",
-                icon="ℹ️",
+                icon=":material/info:",
             )
+        if source["kind"] == "video":
+            if source.get("recorded_at"):
+                st.caption(
+                    f"Recording started {ui.ts(source['recorded_at'])}, so violations show the "
+                    "time they happened."
+                )
+            else:
+                st.caption(
+                    "No recording start time, so violations show how far into the video they "
+                    "happened. Add the video again with its start time to show clock times."
+                )
         st.caption(f"source `{source['id']}`")
     else:
-        st.info("No source attached yet. Detection needs a video or a live feed to run.", icon="🎥")
+        st.info("No source attached yet. Detection needs a video or a live feed to run.", icon=":material/videocam_off:")
 
     st.divider()
     video, stream = st.tabs(["Upload a video", "Use a live camera feed"])
@@ -258,7 +270,8 @@ with source_tab:
         known = st.checkbox(
             "I know when this video was recorded",
             key="recorded_known",
-            help="Optional. Stored on the source so detections can be placed in real time.",
+            help="Optional. With it, violations show the clock time they happened; "
+            "without it, how far into the video.",
         )
         recorded_at = None
         if known:
@@ -314,7 +327,9 @@ except (ApiError, ApiUnreachable) as exc:
     st.stop()
 
 for label, ok in checks:
-    st.markdown(f"{'✅' if ok else '⬜'} {label}")
+    st.markdown(
+        f":green[:material/check_circle:] {label}" if ok else f":gray[:material/radio_button_unchecked:] {label}"
+    )
 
 st.caption(
     "The first two are required before detection can run. Configuration and "
@@ -322,5 +337,5 @@ st.caption(
     "vehicle paths and speeds cannot be estimated."
 )
 
-if all(ok for _, ok in checks[:2]) and st.button("Go to Detection →", type="primary"):
+if all(ok for _, ok in checks[:2]) and st.button("Go to detection", type="primary"):
     st.switch_page("pages/3_Detection.py")

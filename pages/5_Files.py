@@ -19,14 +19,10 @@ import streamlit as st
 from lib import ui
 from lib.api import FILE_TYPES, ApiError, ApiUnreachable
 
-st.set_page_config(page_title="Files", page_icon="📁", layout="wide")
 
 client = ui.sidebar()
 
-st.title("📁 Files")
-st.caption(
-    "Upload a file, or look up one that was uploaded earlier."
-)
+ui.page_header("Files", "Upload files without attaching them, or look one up by id.", eyebrow="Setup")
 
 upload_tab, lookup_tab = st.tabs(["Upload", "Find by ID"])
 
@@ -115,7 +111,7 @@ with lookup_tab:
             )
 
             if file.get("download_url"):
-                st.link_button("Download file", client.absolute(file["download_url"]))
+                st.link_button("Download file", ui.browser_url(client, file["download_url"]))
                 if file["type"] == "video":
-                    st.video(client.absolute(file["download_url"]))
+                    st.video(ui.browser_url(client, file["download_url"]))
             st.json(file, expanded=False)

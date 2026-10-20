@@ -1,24 +1,20 @@
 """Sites — list, create, inspect, delete.
 
-Covers GET/POST /sites and GET/DELETE /sites/{id}, including the two query filters the
-list route accepts. Those filters describe the site's *active source*, not the site, and
-the caption says so — otherwise "status: failed" reads as a broken site rather than a
-source whose last run did not finish.
+Covers GET/POST /sites and GET/DELETE /sites/{id}. The list route's one filter, kind,
+describes the site's *active source*, not the site.
 """
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 
 from lib import ui
 from lib.api import SOURCE_KINDS, ApiError, ApiUnreachable
 
-st.set_page_config(page_title="Sites", page_icon="🏢", layout="wide")
-
 client = ui.sidebar()
 
-st.title("🏢 Sites")
-st.caption("A site is a fixed camera location. Its video is added separately, on Site Setup.")
+ui.page_header("Sites", "Fixed camera locations and the source each one reads from.", eyebrow="Setup")
 
 # ---------------------------------------------------------------------------
 # Create
@@ -59,97 +55,130 @@ with st.expander("Create a site", expanded=False):
 # ---------------------------------------------------------------------------
 
 filters = st.columns([1, 1, 4])
-kind = filters[0].selectbox("Source kind", ["(any)", *SOURCE_KINDS])
-per_page = filters[1].selectbox("Per page", [10, 20, 50, 100], index=1)
-st.caption("The filter applies to the site's current source only.")
+kind = filters[0].selectbox(
+    "Source", [None, *SOURCE_KINDS],
+    format_func=lambda k: {None: "All sources", "video": "Video", "stream": "Live feed"}[k],
+    help="Filters on the source each site uses now.",
+)
+per_page = filters[1].selectbox("Rows", [10, 20, 50, 100], index=1)
 
 st.session_state.setdefault("sites_offset", 0)
 
 try:
-    page = client.list_sites(
-        limit=per_page,
-        offset=st.session_state["sites_offset"],
-        kind=None if kind == "(any)" else kind,
-    )
+    page = client.list_sites(limit=per_page, offset=st.session_state["sites_offset"], kind=kind)
 except (ApiError, ApiUnreachable) as exc:
     ui.error(exc)
     st.stop()
 
 if not page["items"]:
-    ui.empty("No sites match.", "Clear the filters, or create one above.")
+    ui.empty("No sites match.", "Clear the filter, or create one above.")
     st.stop()
 
-st.caption(
-    f"Showing {page['offset'] + 1}–{page['offset'] + len(page['items'])} of {page['total']}"
+
+def describe(metadata: dict) -> str:
+    resolution = metadata.get("resolution") or {}
+    return " · ".join(
+        filter(
+            None,
+            [
+                f"{resolution['width']}×{resolution['height']}" if resolution.get("width") else None,
+                f"{metadata['fps']:.2f} fps" if metadata.get("fps") else None,
+                f"{metadata['duration_seconds']:.1f} s" if metadata.get("duration_seconds") else None,
+            ],
+        )
+    )
+
+
+items = page["items"]
+table = pd.DataFrame(
+    [
+        {
+            "Site": site["name"],
+            "Source": {"stream": "Live feed", "video": "Video"}.get(
+                (site.get("source") or {}).get("kind"), "None"
+            ),
+            "Version": (site.get("source") or {}).get("version"),
+            "Status": (site.get("source") or {}).get("status") or "—",
+            "Format": describe((site.get("source") or {}).get("metadata") or {}),
+            "Created": pd.to_datetime(site["created_at"]).tz_convert(ui.LOCAL_TZ).tz_localize(None),
+        }
+        for site in items
+    ]
+)
+picked = st.dataframe(
+    table,
+    hide_index=True,
+    width="stretch",
+    column_config={
+        "Version": st.column_config.NumberColumn(format="v%d"),
+        "Created": st.column_config.DatetimeColumn(format="D MMM YYYY, HH:mm"),
+    },
+    on_select="rerun",
+    selection_mode="single-row",
+    key=f"sites_table_{st.session_state['sites_offset']}_{kind}",
 )
 
-for site in page["items"]:
-    source = site.get("source") or {}
-    metadata = source.get("metadata") or {}
-    with st.container(border=True):
-        head, actions = st.columns([4, 1])
-        with head:
-            st.markdown(f"**{site['name']}**")
-            st.caption(f"`{site['id']}`")
-        with actions:
-            if st.button("Select", key=f"sel_{site['id']}", width="stretch"):
-                st.session_state["site_id"] = site["id"]
-                st.toast(f"Selected {site['name']}")
-
-        cols = st.columns(4)
-        cols[0].markdown(ui.labelled_chip("video", source.get("status") if source else None), unsafe_allow_html=True)
-        cols[1].caption(f"kind · {source.get('kind', '—')}")
-        cols[2].caption(f"version · {source.get('version', '—')}")
-        cols[3].caption(f"created · {ui.ts(site['created_at'], with_seconds=False)}")
-
-        if metadata:
-            resolution = metadata.get("resolution") or {}
-            st.caption(
-                " · ".join(
-                    filter(
-                        None,
-                        [
-                            f"{resolution['width']}×{resolution['height']}" if resolution.get("width") else None,
-                            f"{metadata['fps']:g} fps" if metadata.get("fps") else None,
-                            f"{metadata['total_frames']} frames" if metadata.get("total_frames") else None,
-                            f"{metadata['duration_seconds']:.2f}s" if metadata.get("duration_seconds") else None,
-                        ],
-                    )
-                )
-            )
-
-        with st.expander("Delete"):
-            st.caption(
-                "A site that has recorded violations cannot be deleted. This is intentional, so "
-                "violation records are never removed by accident."
-            )
-            confirm = st.text_input(
-                "Type the site name to confirm", key=f"confirm_{site['id']}", label_visibility="collapsed",
-                placeholder=site["name"],
-            )
-            if st.button("Delete site", key=f"del_{site['id']}", type="secondary", disabled=confirm != site["name"]):
-                try:
-                    client.delete_site(site["id"])
-                except (ApiError, ApiUnreachable) as exc:
-                    ui.error(exc)
-                else:
-                    st.success("Deleted.")
-                    if st.session_state.get("site_id") == site["id"]:
-                        st.session_state.pop("site_id")
-                    st.rerun()
-
-# ---------------------------------------------------------------------------
-# Paging
-# ---------------------------------------------------------------------------
-
-back, forward = st.columns(2)
-if back.button("← Previous", disabled=page["offset"] == 0, width="stretch"):
+pager = st.columns([3, 1, 1], vertical_alignment="center")
+pager[0].caption(f"{page['offset'] + 1}–{page['offset'] + len(items)} of {page['total']}")
+if pager[1].button("Previous", disabled=page["offset"] == 0, width="stretch"):
     st.session_state["sites_offset"] = max(0, page["offset"] - per_page)
     st.rerun()
-if forward.button(
-    "Next →",
-    disabled=page["offset"] + len(page["items"]) >= page["total"],
-    width="stretch",
-):
+if pager[2].button("Next", disabled=page["offset"] + len(items) >= page["total"], width="stretch"):
     st.session_state["sites_offset"] = page["offset"] + per_page
     st.rerun()
+
+# ---------------------------------------------------------------------------
+# Selected site
+# ---------------------------------------------------------------------------
+
+if not picked.selection.rows:
+    st.caption("Select a row to see the site's details.")
+    st.stop()
+
+site = items[picked.selection.rows[0]]
+source = site.get("source") or {}
+
+with st.container(border=True):
+    head, act = st.columns([3, 2], vertical_alignment="center")
+    with head:
+        st.subheader(site["name"], anchor=False)
+        st.caption(f"`{site['id']}` · created {ui.ts(site['created_at'], with_seconds=False)}")
+    with act:
+        buttons = st.columns(3)
+        if buttons[0].button("Use site", type="primary", width="stretch"):
+            st.session_state["site_id"] = site["id"]
+            st.rerun()
+        if buttons[1].button("View", width="stretch"):
+            st.session_state["site_id"] = site["id"]
+            st.switch_page("pages/2_Site_View.py")
+        if buttons[2].button("Set up", width="stretch"):
+            st.session_state["site_id"] = site["id"]
+            st.switch_page("pages/2_Site_Setup.py")
+
+    st.markdown(
+        ui.labelled_chip("source", source.get("status") if source else None)
+        + "&nbsp;&nbsp;" + ui.source_label(client, source),
+        unsafe_allow_html=True,
+    )
+    if source.get("metadata"):
+        st.caption(describe(source["metadata"]))
+
+    with st.expander("Delete site"):
+        st.caption(
+            "A site that has recorded violations cannot be deleted, so violation records are "
+            "never removed by accident. Type the site name to confirm."
+        )
+        confirm = st.text_input(
+            "Site name", key=f"confirm_{site['id']}", label_visibility="collapsed",
+            placeholder=site["name"],
+        )
+        if st.button("Delete site", key=f"del_{site['id']}", disabled=confirm != site["name"]):
+            try:
+                client.delete_site(site["id"])
+            except (ApiError, ApiUnreachable) as exc:
+                ui.error(exc)
+            else:
+                st.success("Deleted.")
+                if st.session_state.get("site_id") == site["id"]:
+                    st.session_state.pop("site_id")
+                st.rerun()

@@ -13,23 +13,22 @@ from __future__ import annotations
 
 import time
 
+import pandas as pd
 import streamlit as st
 
 from lib import ui
 from lib.api import VIOLATION_TYPES, ApiError, ApiUnreachable
 
-st.set_page_config(page_title="Detection", page_icon="🎯", layout="wide")
 
 client = ui.sidebar()
 site = ui.site_selector(client)
 
-st.title("🎯 Detection")
+ui.page_header("Detection", "Start detection on the current source and follow its runs.", eyebrow=f"Operations · {site['name']}" if site else "Operations")
 
 if site is None:
     ui.empty("Pick a site in the sidebar.")
     st.stop()
 
-st.caption(f"Running against **{site['name']}** · `{site['id']}`")
 
 try:
     source = client.get_active_source(site["id"])
@@ -45,7 +44,7 @@ except (ApiError, ApiUnreachable) as exc:
 st.markdown("#### Source")
 
 if not source:
-    st.warning("This site has no source yet. Add a video or a live feed on Site Setup.", icon="⚠️")
+    st.warning("This site has no source yet. Add a video or a live feed on Site Setup.", icon=":material/warning:")
 else:
     metadata = source.get("metadata") or {}
     cols = st.columns(4)
@@ -54,12 +53,12 @@ else:
         unsafe_allow_html=True,
     )
     if source["kind"] == "video":
-        cols[1].metric("Frames", metadata.get("total_frames") or "—")
-        cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
-        cols[3].metric("Duration", f"{metadata.get('duration_seconds', 0):.1f}s")
+        cols[1].metric("Frames", f"{metadata['total_frames']:,}" if metadata.get("total_frames") else "—", border=True)
+        cols[2].metric("FPS", f"{metadata['fps']:.2f}" if metadata.get("fps") else "—", border=True)
+        cols[3].metric("Duration", f"{metadata.get('duration_seconds') or 0:.1f}s", border=True)
     else:
         cols[1].caption(f"**stream url**\n\n`{source.get('stream_url')}`")
-        cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
+        cols[2].metric("FPS", f"{metadata['fps']:.2f}" if metadata.get("fps") else "—", border=True)
         st.caption(
             "A live feed is probed when detection starts, not when it is added: an "
             "unreadable feed is refused then, and its frame rate and size are saved."
@@ -100,7 +99,7 @@ if start.button("Start detection", type="primary", disabled=not runnable, width=
     else:
         st.session_state["last_session"] = session
         st.session_state["violations_before"] = before
-        st.toast("Detection started", icon="🎯")
+        st.toast("Detection started", icon=":material/play_circle:")
 
 if source and source["kind"] == "stream":
     if stop.button("Stop recording", width="stretch"):
@@ -108,13 +107,13 @@ if source and source["kind"] == "stream":
             client.stop_source(site["id"], source["id"])
         except ApiError as exc:
             if exc.status == 409:
-                st.info("This feed is not being recorded.", icon="ℹ️")
+                st.info("This feed is not being recorded.", icon=":material/info:")
             else:
                 ui.error(exc)
         except ApiUnreachable as exc:
             ui.error(exc)
         else:
-            st.toast("Stopping — the last piece is closed and its windows still run.", icon="⏹️")
+            st.toast("Stopping — the last piece is closed and its windows still run.", icon=":material/stop_circle:")
 
 session = st.session_state.get("last_session")
 if session and session["site_id"] == site["id"]:
@@ -158,12 +157,28 @@ def draw_runs(runs: list[dict]) -> None:
         " ".join(ui.chip(status, f"{status} {n}") for status, n in counts.items()),
         unsafe_allow_html=True,
     )
-    for run in runs:
-        cols = st.columns([1, 2, 2, 3])
-        cols[0].markdown(ui.chip(run["status"]), unsafe_allow_html=True)
-        cols[1].caption(ui.run_frames(run))
-        cols[2].caption(ui.ts(run["created_at"], with_seconds=True))
-        cols[3].caption(run.get("error") or " ".join(t.replace("_", " ") for t in run["types"]))
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Created": pd.to_datetime(run["created_at"]).tz_convert(ui.LOCAL_TZ).tz_localize(None),
+                    "Status": run["status"],
+                    "Footage": ui.run_span(ui.source_of(client, site["id"], run.get("source_id")), run),
+                    "Types": ", ".join(t.replace("_", " ") for t in run["types"]),
+                    "Finished": pd.to_datetime(run["finished_at"]).tz_convert(ui.LOCAL_TZ).tz_localize(None)
+                    if run.get("finished_at") else None,
+                    "Error": run.get("error") or "",
+                }
+                for run in runs
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Created": st.column_config.DatetimeColumn(format="D MMM, HH:mm:ss"),
+            "Finished": st.column_config.DatetimeColumn(format="D MMM, HH:mm:ss"),
+        },
+    )
 
 
 try:
@@ -211,20 +226,20 @@ if watch:
             break
         busy = sum(r["status"] in ("queued", "running") for r in runs)
         if runs and not busy:
-            placeholder.success(f"No run is queued or running. {total} violations recorded.", icon="✅")
+            placeholder.success(f"No run is queued or running. {total} violations recorded.", icon=":material/check_circle:")
             break
         placeholder.info(
             f"Watching… {busy} run(s) queued or running, {total} violations recorded. "
             f"{int(deadline - time.time())}s left of automatic checking.",
-            icon="⏳",
+            icon=":material/hourglass_top:",
         )
         time.sleep(3)
     else:
         placeholder.warning(
             "Stopped checking after two minutes. Runs may still be going — a long video "
             "or a live feed produces many windows. Press Refresh to check again.",
-            icon="⌛",
+            icon=":material/hourglass_bottom:",
         )
 
-if before and st.button("Review violations →"):
+if before and st.button("Review violations"):
     st.switch_page("pages/4_Violations.py")

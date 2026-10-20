@@ -18,11 +18,15 @@ from __future__ import annotations
 import datetime as dt
 import html
 import re
+import urllib.parse
 from typing import Any
 
 import streamlit as st
 
-from lib.api import Api, ApiError, ApiUnreachable, DEFAULT_BASE_URL, normalise_base_url
+from lib.api import API_PREFIX, Api, ApiError, ApiUnreachable, DEFAULT_BASE_URL, normalise_base_url
+
+# Every time on screen is in this machine's zone; the API speaks UTC.
+LOCAL_TZ = dt.datetime.now().astimezone().tzinfo
 
 # ---------------------------------------------------------------------------
 # Palette
@@ -85,8 +89,8 @@ def chip(value: Any, label: str | None = None) -> str:
     bg, fg = _CHIPS.get(key, _SLATE)
     text = html.escape(label if label is not None else key.replace("_", " "))
     return (
-        f'<span style="background:{bg};color:{fg};padding:2px 10px;'
-        f"border-radius:999px;font-size:0.78rem;font-weight:600;"
+        f'<span style="background:{bg};color:{fg};padding:1px 8px;'
+        f"border-radius:4px;font-size:0.75rem;font-weight:600;"
         f'white-space:nowrap;display:inline-block;line-height:1.5;">{text}</span>'
     )
 
@@ -132,31 +136,63 @@ def api() -> Api:
     return _client(normalise_base_url(st.session_state.get("base_url", DEFAULT_BASE_URL)))
 
 
+_CSS = """
+<style>
+  .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px; }
+  [data-testid="stHeaderActionElements"] { display: none; }
+  .tvc-eyebrow { color: #898781; font-size: .78rem; font-weight: 600; letter-spacing: .06em;
+                 text-transform: uppercase; margin-bottom: .1rem; }
+  .tvc-sub { color: #52514e; font-size: .92rem; margin: -.35rem 0 1.1rem; }
+  .tvc-brand { font-weight: 700; font-size: 1rem; color: #1a1a19; letter-spacing: -.01em; }
+  .tvc-brand small { display: block; font-weight: 500; color: #898781; font-size: .75rem; }
+  .tvc-conn { font-size: .8rem; color: #52514e; display: flex; align-items: center; gap: 6px; }
+  .tvc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .tvc-label { color: #898781; font-size: .75rem; font-weight: 600; text-transform: uppercase;
+               letter-spacing: .05em; }
+</style>
+"""
+
+
+def style() -> None:
+    st.markdown(_CSS, unsafe_allow_html=True)
+
+
+def page_header(title: str, subtitle: str = "", eyebrow: str = "") -> None:
+    """The same heading on every page: an optional context line, the title, one
+    sentence of what the page is for."""
+    if eyebrow:
+        st.markdown(f'<div class="tvc-eyebrow">{html.escape(eyebrow)}</div>', unsafe_allow_html=True)
+    st.title(title, anchor=False)
+    if subtitle:
+        st.markdown(f'<div class="tvc-sub">{html.escape(subtitle)}</div>', unsafe_allow_html=True)
+
+
 def sidebar() -> Api:
     """Connection controls plus the site every page shares. Returns the client so a
     page's first line can be `client = ui.sidebar()`."""
     st.session_state.setdefault("base_url", DEFAULT_BASE_URL)
 
     with st.sidebar:
-        st.markdown("### Traffic Violation Console")
-        st.text_input(
-            "Server address",
-            key="base_url",
-            help="Address of the traffic violation server. Leave as is unless told otherwise.",
-        )
-
         client = api()
-        # The field is free text and can be emptied mid-edit; say which URL is actually
-        # being used rather than letting the health box report on an invisible fallback.
-        if client.base_url != (st.session_state.get("base_url") or "").strip().rstrip("/"):
-            st.caption(f"Using `{client.base_url}`")
         try:
             client.health()
-            st.success("Connected to server", icon="✅")
+            ok, detail = True, None
         except (ApiError, ApiUnreachable) as exc:
-            st.error(f"{exc}", icon="🔌")
-
-        st.divider()
+            ok, detail = False, str(exc)
+        colour = "#0ca30c" if ok else "#d03b3b"
+        st.markdown(
+            f'<div class="tvc-conn"><span class="tvc-dot" style="background:{colour}"></span>'
+            f'{"Connected" if ok else "Server unreachable"} · {html.escape(client.base_url)}</div>',
+            unsafe_allow_html=True,
+        )
+        if detail:
+            st.caption(detail)
+        with st.expander("Connection", expanded=not ok):
+            st.text_input(
+                "Server address",
+                key="base_url",
+                help="Address of the traffic violation server. Leave as is unless told otherwise.",
+            )
         return client
 
 
@@ -189,8 +225,45 @@ def site_selector(client: Api, key: str = "site_id") -> dict | None:
         key=f"_{key}_select",
     )
     st.session_state[key] = chosen
-    st.sidebar.caption(f"`{chosen}`")
     return by_id[chosen]
+
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=512)
+def _file_name(base_url: str, file_id: str) -> str | None:
+    """A file's name, cached on its id: a new upload is a new id, so it never goes stale."""
+    try:
+        return Api(base_url).get_file(file_id)["name"]
+    except (ApiError, ApiUnreachable):
+        return None
+
+
+def browser_url(client: Api, url: str) -> str:
+    """A storage link the *browser* will open: a player, a clip, a download.
+
+    Local storage links point at the API, which a remote browser often cannot reach.
+    serve.py relays them on the console's own port under /storage/, so they are
+    rewritten to that — only for the API the relay serves. Presigned R2 links are
+    already public and pass through.
+    """
+    absolute = client.absolute(url)
+    prefix = f"{client.base_url}{API_PREFIX}/storage/"
+    relayed = client.base_url == normalise_base_url(DEFAULT_BASE_URL)
+    # No page URL (a test harness, a bare script run) means no origin to relay through.
+    if relayed and st.context.url and absolute.startswith(prefix):
+        return urllib.parse.urljoin(st.context.url, "/storage/" + absolute[len(prefix):])
+    return absolute
+
+
+def source_label(client: Api, source: dict | None) -> str:
+    """What a site reads from, as markdown: the feed's URL, or the video's file name."""
+    if not source:
+        return "No source attached"
+    if source["kind"] == "stream":
+        what = f"Live feed · `{source.get('stream_url') or '—'}`"
+    else:
+        name = _file_name(client.base_url, source["file_id"]) if source.get("file_id") else None
+        what = f"Video · `{name or source.get('file_id') or '—'}`"
+    return f"{what} · v{source['version']}"
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +283,9 @@ def ts(value: str | None, *, with_seconds: bool = True) -> str:
         parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return str(value)
-    fmt = "%Y-%m-%d %H:%M:%S" if with_seconds else "%Y-%m-%d %H:%M"
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(LOCAL_TZ)
+    fmt = "%d %b %Y, %H:%M:%S" if with_seconds else "%d %b %Y, %H:%M"
     return parsed.strftime(fmt)
 
 
@@ -223,6 +298,75 @@ def bytes_human(n: int | None) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
+
+
+@st.cache_data(show_spinner=False, ttl=300, max_entries=256)
+def _source(base_url: str, site_id: str, source_id: str) -> dict | None:
+    try:
+        return Api(base_url).get_source(site_id, source_id)
+    except (ApiError, ApiUnreachable):
+        return None
+
+
+def source_of(client: Api, site_id: str, source_id: str | None) -> dict | None:
+    """The source version a violation or run was judged on — not necessarily the
+    site's current one. Cached: a video source's fps and start time do not change."""
+    return _source(client.base_url, site_id, source_id) if source_id else None
+
+
+def _clock(seconds: float) -> str:
+    seconds = int(round(seconds))
+    h, rest = divmod(seconds, 3600)
+    return f"{h}:{rest // 60:02d}:{rest % 60:02d}" if h else f"{rest // 60:02d}:{rest % 60:02d}"
+
+
+def _video_timing(source: dict | None) -> tuple[float, dt.datetime | None] | None:
+    """(fps, recording start) for a video source, or None when frames cannot be timed.
+
+    Live feeds are left out on purpose: their frame count runs on across reconnects,
+    so frame / fps drifts from the wall clock after every gap.
+    """
+    if not source or source.get("kind") != "video":
+        return None
+    fps = (source.get("metadata") or {}).get("fps")
+    if not fps:
+        return None
+    start = source.get("recorded_at")
+    if start:
+        start = dt.datetime.fromisoformat(str(start).replace("Z", "+00:00")).astimezone(LOCAL_TZ)
+    return fps, start or None
+
+
+def event_time(source: dict | None, frame_index: int | None, detected_at: str | None) -> str:
+    """When a violation happened, as precisely as the source allows.
+
+    A video with a recording start: the clock time in the footage. A video without
+    one: how far into the video. Otherwise only when it was detected, marked as an
+    approximation — for a live feed that is seconds behind the event.
+    """
+    timing = _video_timing(source)
+    if timing and frame_index is not None:
+        fps, start = timing
+        offset = frame_index / fps
+        if start:
+            return (start + dt.timedelta(seconds=offset)).strftime("%d %b %Y, %H:%M:%S")
+        return f"{_clock(offset)} into the video"
+    return f"≈ {ts(detected_at)}" if detected_at else "—"
+
+
+def run_span(source: dict | None, run: dict) -> str:
+    """The stretch of footage a run judged, as times where the source allows."""
+    if run.get("frame_start") is None:
+        return "whole video"
+    timing = _video_timing(source)
+    if not timing:
+        return run_frames(run)
+    fps, start = timing
+    a, b = run["frame_start"] / fps, run["frame_end"] / fps
+    if start:
+        first, last = start + dt.timedelta(seconds=a), start + dt.timedelta(seconds=b)
+        return f"{first:%d %b %Y, %H:%M:%S}–{last:%H:%M:%S}"
+    return f"{_clock(a)}–{_clock(b)} of the video"
 
 
 def run_frames(run: dict) -> str:
@@ -243,7 +387,7 @@ def frame_time(frame_index: int | None, fps: float | None) -> str:
         return "—"
     if not fps:
         return f"frame {frame_index}"
-    return f"frame {frame_index} · {frame_index / fps:.2f}s"
+    return f"frame {frame_index} · {_clock(frame_index / fps)}"
 
 
 # A `\uXXXX` escape that survived into stored text, as a surrogate pair first so an
@@ -301,7 +445,7 @@ def error(exc: Exception) -> None:
     the explanation they were chosen to carry rather than a generic red box.
     """
     if isinstance(exc, ApiUnreachable):
-        st.error(str(exc), icon="🔌")
+        st.error(str(exc), icon=":material/cloud_off:")
         return
     if isinstance(exc, ApiError):
         hint = {
@@ -311,15 +455,15 @@ def error(exc: Exception) -> None:
             422: "Some of the information entered is not valid.",
             502: "The server is temporarily unable to complete this. Please try again.",
         }.get(exc.status)
-        st.error(f"{exc.detail}" + (f"\n\n{hint}" if hint else ""), icon="🚫")
+        st.error(f"{exc.detail}" + (f"\n\n{hint}" if hint else ""), icon=":material/block:")
         return
-    st.error(str(exc), icon="❌")
+    st.error(str(exc), icon=":material/error:")
 
 
 def empty(message: str, hint: str = "") -> None:
     st.markdown(
-        f'<div style="border:1px dashed #cbd5e1;border-radius:10px;padding:28px;'
-        f'text-align:center;color:#64748b;">{html.escape(message)}'
+        f'<div style="border:1px solid #e1e0d9;background:#f7f7f5;border-radius:6px;padding:28px;'
+        f'text-align:center;color:#52514e;">{html.escape(message)}'
         + (
             f'<div style="font-size:0.85rem;margin-top:6px;opacity:.8;">{html.escape(hint)}</div>'
             if hint
