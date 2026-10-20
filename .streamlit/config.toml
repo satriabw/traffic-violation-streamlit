@@ -1,30 +1,39 @@
+# Styled after Uber's Base design system: black primary actions, a mono grey scale,
+# one blue accent. Base's typeface (Uber Move) is not public, so Inter stands in.
 [theme]
 base = "light"
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
 codeFont = "monospace"
 baseFontSize = 14
-primaryColor = "#256abf"
+primaryColor = "#000000"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f4f4f2"
-textColor = "#1a1a19"
-linkColor = "#256abf"
-borderColor = "#e1e0d9"
-dataframeBorderColor = "#e1e0d9"
-dataframeHeaderBackgroundColor = "#f7f7f5"
+secondaryBackgroundColor = "#f6f6f6"
+textColor = "#000000"
+linkColor = "#276ef1"
+borderColor = "#e2e2e2"
+dataframeBorderColor = "#e2e2e2"
+dataframeHeaderBackgroundColor = "#f6f6f6"
 showWidgetBorder = true
-baseRadius = "6px"
-buttonRadius = "6px"
-headingFontWeights = [600, 600, 600, 600, 600, 600]
-headingFontSizes = ["1.6rem", "1.15rem", "1rem", "0.95rem", "0.9rem", "0.85rem"]
+baseRadius = "8px"
+buttonRadius = "8px"
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+headingFontSizes = ["1.75rem", "1.2rem", "1rem", "0.95rem", "0.9rem", "0.85rem"]
 metricValueFontSize = "1.75rem"
-metricValueFontWeight = 600
+metricValueFontWeight = 700
 showSidebarBorder = true
+blueColor = "#276ef1"
+greenColor = "#05944f"
+redColor = "#e11900"
+orangeColor = "#ff6937"
+yellowColor = "#ffc043"
+violetColor = "#7356bf"
+grayColor = "#757575"
 # The categorical slots, in the validated fixed order.
 chartCategoricalColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 
 [theme.sidebar]
-backgroundColor = "#f7f7f5"
-secondaryBackgroundColor = "#ffffff"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f6f6f6"
 
 [client]
 toolbarMode = "minimal"

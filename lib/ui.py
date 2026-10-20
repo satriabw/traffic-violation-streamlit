@@ -32,12 +32,13 @@ LOCAL_TZ = dt.datetime.now().astimezone().tzinfo
 # Palette
 # ---------------------------------------------------------------------------
 
-_SLATE = ("#e2e8f0", "#334155")
-_AMBER = ("#fef3c7", "#92400e")
-_GREEN = ("#dcfce7", "#166534")
-_RED = ("#fee2e2", "#991b1b")
-_BLUE = ("#dbeafe", "#1e40af")
-_VIOLET = ("#ede9fe", "#5b21b6")
+# Base's light/dark tag pairs: a 50-step background with a 600/700-step label.
+_SLATE = ("#eeeeee", "#333333")
+_AMBER = ("#fff2d9", "#674d1b")
+_GREEN = ("#e6f2ed", "#03582f")
+_RED = ("#ffefed", "#ab1300")
+_BLUE = ("#eff3fe", "#1e54b7")
+_VIOLET = ("#f4f1fa", "#4d3880")
 
 _CHIPS: dict[str, tuple[str, str]] = {
     # ViolationStatus
@@ -110,7 +111,7 @@ def labelled_chip(label: str, value: Any) -> str:
     is emphatic that conflating the two is the mistake to avoid.
     """
     return (
-        f'<span style="color:#64748b;font-size:0.78rem;margin-right:4px;">'
+        f'<span style="color:#757575;font-size:0.78rem;margin-right:4px;">'
         f"{html.escape(label)}</span>{chip(value)}"
     )
 
@@ -140,15 +141,13 @@ _CSS = """
 <style>
   .block-container { padding-top: 2.2rem; padding-bottom: 3rem; max-width: 1400px; }
   [data-testid="stHeaderActionElements"] { display: none; }
-  .tvc-eyebrow { color: #898781; font-size: .78rem; font-weight: 600; letter-spacing: .06em;
+  h1, h2, h3 { letter-spacing: -.02em; }
+  .tvc-eyebrow { color: #757575; font-size: .75rem; font-weight: 600; letter-spacing: .04em;
                  text-transform: uppercase; margin-bottom: .1rem; }
-  .tvc-sub { color: #52514e; font-size: .92rem; margin: -.35rem 0 1.1rem; }
-  .tvc-brand { font-weight: 700; font-size: 1rem; color: #1a1a19; letter-spacing: -.01em; }
-  .tvc-brand small { display: block; font-weight: 500; color: #898781; font-size: .75rem; }
-  .tvc-conn { font-size: .8rem; color: #52514e; display: flex; align-items: center; gap: 6px; }
+  .tvc-sub { color: #545454; font-size: .95rem; margin: -.35rem 0 1.25rem; }
+  .tvc-conn { font-size: .8rem; color: #545454; display: flex; align-items: center; gap: 6px; }
   .tvc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-  .tvc-label { color: #898781; font-size: .75rem; font-weight: 600; text-transform: uppercase;
-               letter-spacing: .05em; }
+  [data-testid="stMetric"] label p { color: #545454; font-weight: 500; }
 </style>
 """
 
@@ -179,7 +178,7 @@ def sidebar() -> Api:
             ok, detail = True, None
         except (ApiError, ApiUnreachable) as exc:
             ok, detail = False, str(exc)
-        colour = "#0ca30c" if ok else "#d03b3b"
+        colour = "#05944f" if ok else "#e11900"
         st.markdown(
             f'<div class="tvc-conn"><span class="tvc-dot" style="background:{colour}"></span>'
             f'{"Connected" if ok else "Server unreachable"} · {html.escape(client.base_url)}</div>',
@@ -462,8 +461,8 @@ def error(exc: Exception) -> None:
 
 def empty(message: str, hint: str = "") -> None:
     st.markdown(
-        f'<div style="border:1px solid #e1e0d9;background:#f7f7f5;border-radius:6px;padding:28px;'
-        f'text-align:center;color:#52514e;">{html.escape(message)}'
+        f'<div style="border:1px solid #e2e2e2;background:#f6f6f6;border-radius:8px;padding:28px;'
+        f'text-align:center;color:#545454;">{html.escape(message)}'
         + (
             f'<div style="font-size:0.85rem;margin-top:6px;opacity:.8;">{html.escape(hint)}</div>'
             if hint

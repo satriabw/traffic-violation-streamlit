@@ -18,8 +18,9 @@ from lib.api import Api, ApiError, ApiUnreachable
 
 client = ui.sidebar()
 
-INK, INK_SOFT, MUTED, GRID, BASE = "#1a1a19", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
-SERIES_1 = "#2a78d6"
+# Base mono greys for chart chrome; its one accent for the single series.
+INK, INK_SOFT, MUTED, GRID, BASE = "#000000", "#545454", "#757575", "#eeeeee", "#cbcbcb"
+SERIES_1 = "#276ef1"
 MAX_PER_SITE = 1000
 
 

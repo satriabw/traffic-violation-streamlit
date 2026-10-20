@@ -76,7 +76,7 @@ else:
             f'<span style="color:{colour};font-weight:600;">■</span> {label} {counts[layer]}'
             for layer, (label, colour) in live.LAYERS.items()
         )
-        + f' &nbsp;·&nbsp; <span style="color:#64748b;">configuration v{config_row["version"]}'
+        + f' &nbsp;·&nbsp; <span style="color:#757575;">configuration v{config_row["version"]}'
         + (f", drawn on {space[0]}×{space[1]}" if space else "")
         + "</span>",
         unsafe_allow_html=True,
