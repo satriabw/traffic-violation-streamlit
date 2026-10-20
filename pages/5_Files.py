@@ -115,7 +115,7 @@ with lookup_tab:
             )
 
             if file.get("download_url"):
-                st.link_button("Download file", file["download_url"])
+                st.link_button("Download file", client.absolute(file["download_url"]))
                 if file["type"] == "video":
-                    st.video(file["download_url"])
+                    st.video(client.absolute(file["download_url"]))
             st.json(file, expanded=False)

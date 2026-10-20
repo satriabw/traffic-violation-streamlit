@@ -32,9 +32,9 @@ immediately rather than as a failure on the first real call.
 |---|---|---|
 | **Overview** | Every site with its source and violation counts | `GET /sites`, `GET .../violations` |
 | **Sites** | Create, filter, select, delete | `GET/POST /sites`, `GET/DELETE /sites/{id}` |
-| **Site Setup** | Upload + attach calibration, configuration, source; readiness checklist | `POST /files`, presigned `PUT`, `POST /files/{id}/complete`, `GET/POST .../calibrations`, `.../configurations`, `.../sources` |
-| **Detection** | Queue a run, watch violations arrive | `POST /sites/{id}/detect` |
-| **Violations** | Review queue, evidence overlay, trajectories, explain | `GET .../violations`, `GET .../violations/{id}`, `POST .../explain` |
+| **Site Setup** | Upload + attach calibration, configuration, source; invalidate a wrong document's runs; readiness checklist | `POST /files`, presigned `PUT`, `POST /files/{id}/complete`, `GET/POST .../calibrations`, `.../configurations`, `POST .../{id}/invalidate`, `.../sources` |
+| **Detection** | Start a session on a video or live feed, stop a feed, watch its runs | `POST /sites/{id}/detect`, `POST .../sources/{id}/stop`, `GET .../runs` |
+| **Violations** | Review queue (filterable by run), evidence overlay, trajectories, explain | `GET .../violations?run_id=`, `GET .../violations/{id}`, `POST .../explain` |
 | **Files** | Upload without attaching; look up by id | `POST /files`, `PUT`, `POST .../complete`, `GET /files/{id}` |
 
 ## Things that are the way they are for a reason

@@ -26,17 +26,14 @@ UPLOAD_TIMEOUT = float(os.environ.get("UPLOAD_TIMEOUT_SECONDS", "300"))
 
 API_PREFIX = "/api/v1"
 
+# Every type the backend knows. Which of them are switched on is the server's
+# VIOLATION_TYPES setting (red light is off until it is validated), and asking for one
+# that is off is a 422 rather than a silent skip — so the list here is not a promise.
 VIOLATION_TYPES = ("red_light_running", "pedestrian_right_of_way")
 FILE_TYPES = ("calibration", "configuration", "video", "evidence_frame")
 SOURCE_KINDS = ("video", "stream")
-SOURCE_STATUSES = (
-    "created",
-    "active",
-    "degraded",
-    "processing",
-    "completed",
-    "failed",
-)
+RUN_STATUSES = ("queued", "running", "completed", "failed", "invalid")
+SESSION_STATUSES = ("recording", "stopping", "stopped", "failed")
 
 
 class ApiError(Exception):
@@ -97,6 +94,14 @@ class Api:
     def _url(self, path: str) -> str:
         return f"{self.base_url}{API_PREFIX}{path}"
 
+    def absolute(self, url: str) -> str:
+        """An upload, download or evidence URL the API handed back, made fetchable.
+
+        With STORAGE_BACKEND=local those are site-service's own /storage paths with no
+        host on them; presigned R2 URLs are already absolute and pass through as-is.
+        """
+        return urllib.parse.urljoin(f"{self.base_url}/", url)
+
     def _request(self, method: str, path: str, **kwargs) -> Any:
         url = self._url(path)
         kwargs.setdefault("timeout", self.timeout)
@@ -144,16 +149,12 @@ class Api:
         limit: int = 20,
         offset: int = 0,
         kind: str | None = None,
-        status: str | None = None,
     ) -> dict:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        # kind and status describe the site's *active* source, not its history — see
-        # the docstring on the route. Omitted rather than sent as None so an unset
-        # filter is absent from the query string entirely.
+        # kind describes the site's *active* source, not its history. Omitted rather
+        # than sent as None so an unset filter is absent from the query string entirely.
         if kind:
             params["kind"] = kind
-        if status:
-            params["status"] = status
         return self._request("GET", "/sites", params=params)
 
     def all_sites(self, page: int = 100) -> list[dict]:
@@ -220,6 +221,9 @@ class Api:
         URL carries the list in X-Amz-SignedHeaders, so this sends exactly that set and
         cannot drift when the server starts or stops signing something.
 
+        With STORAGE_BACKEND=local the URL is site-service's own /storage route and
+        carries no signature at all, so nothing extra is sent — which is what it wants.
+
         In practice the list is `content-length;host`, and `content-length;content-type;
         host` whenever the file row carries a content type. Sending no Content-Type
         against the second form is a 403 SignatureDoesNotMatch, which is how this was
@@ -230,6 +234,7 @@ class Api:
         file object — a stream goes out chunked, with no Content-Length at all, and R2
         rejects it the same way.
         """
+        upload_url = self.absolute(upload_url)
         signed = _signed_headers(upload_url)
         headers: dict[str, str] = {}
         if "content-type" in signed:
@@ -300,6 +305,19 @@ class Api:
     def get_doc(self, site_id: str, resource: str, doc_id: str) -> dict:
         return self._request("GET", f"/sites/{site_id}/{resource}/{doc_id}")
 
+    def invalidate_doc(self, site_id: str, resource: str, doc_id: str, reason: str) -> int:
+        """Mark every run judged under this document invalid; returns how many.
+
+        For a calibration or configuration found wrong after the fact. The document
+        itself stays; its runs leave the run list and their violations the queue.
+        """
+        body = self._request(
+            "POST",
+            f"/sites/{site_id}/{resource}/{doc_id}/invalidate",
+            json={"reason": reason},
+        )
+        return body["invalidated"]
+
     # ---- sources ----------------------------------------------------------
 
     def get_active_source(self, site_id: str) -> dict | None:
@@ -332,6 +350,7 @@ class Api:
         kind: str,
         file_id: str | None = None,
         stream_url: str | None = None,
+        recorded_at: str | None = None,
     ) -> dict:
         # SourceCreate forbids extras and validates that exactly one of the two is set
         # for the kind, so the wrong key is left out rather than sent as null.
@@ -340,26 +359,67 @@ class Api:
             body["file_id"] = file_id
         else:
             body["stream_url"] = stream_url
+        # Must carry a timezone: the model is AwareDatetime and refuses a naive one.
+        if recorded_at:
+            body["recorded_at"] = recorded_at
         return self._request("POST", f"/sites/{site_id}/sources", json=body)
 
     # ---- detection --------------------------------------------------------
 
-    def detect(self, site_id: str, types: Iterable[str] | None = None) -> dict:
-        """202 and a DetectionJob. Nothing is finished when this returns."""
+    def detect(
+        self,
+        site_id: str,
+        types: Iterable[str] | None = None,
+        source_id: str | None = None,
+    ) -> dict:
+        """202 and a stream session. Nothing is finished when this returns.
+
+        The ingestion worker picks the session up, cuts the source into pieces and
+        queues one detection run per window; the runs are what to watch. Without
+        `source_id` it starts on the site's active source.
+        """
         types = list(types) if types else None
-        # An empty/absent `types` means every type the backend knows about, which is
+        # An empty/absent `types` means every type the server has switched on, which is
         # not the same as sending the list we happen to know here — so it is omitted.
         body = {"types": types} if types else {}
-        return self._request("POST", f"/sites/{site_id}/detect", json=body)
+        path = (
+            f"/sites/{site_id}/sources/{source_id}/detect"
+            if source_id
+            else f"/sites/{site_id}/detect"
+        )
+        return self._request("POST", path, json=body)
+
+    def stop_source(self, site_id: str, source_id: str) -> None:
+        """End a live stream's recording. 409 when nothing is recording it; a video's
+        session ends by itself once every window is queued."""
+        self._request("POST", f"/sites/{site_id}/sources/{source_id}/stop")
+
+    # ---- runs -------------------------------------------------------------
+
+    def list_runs(self, site_id: str, limit: int = 20, offset: int = 0) -> dict:
+        """Newest first. One run per window, so a session shows up as many runs."""
+        return self._request(
+            "GET",
+            f"/sites/{site_id}/runs",
+            params={"limit": limit, "offset": offset},
+        )
+
+    def get_run(self, site_id: str, run_id: str) -> dict:
+        return self._request("GET", f"/sites/{site_id}/runs/{run_id}")
 
     # ---- violations -------------------------------------------------------
 
-    def list_violations(self, site_id: str, limit: int = 20, offset: int = 0) -> dict:
-        return self._request(
-            "GET",
-            f"/sites/{site_id}/violations",
-            params={"limit": limit, "offset": offset},
-        )
+    def list_violations(
+        self,
+        site_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        run_id: str | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if run_id:
+            params["run_id"] = run_id
+        return self._request("GET", f"/sites/{site_id}/violations", params=params)
 
     def get_violation(self, site_id: str, violation_id: str) -> dict:
         return self._request("GET", f"/sites/{site_id}/violations/{violation_id}")

@@ -1,11 +1,11 @@
 """The bits every page draws the same way.
 
-STATUS IS A VOCABULARY, NOT A STRING. The backend keeps four separate enums that all
-mean "how far has something got" — ViolationStatus, EvidenceStatus, SourceStatus,
-FileStatus — and deliberately does not merge them (see the comments on EvidenceStatus).
+STATUS IS A VOCABULARY, NOT A STRING. The backend keeps separate enums that all mean
+"how far has something got" — ViolationStatus, EvidenceStatus, SourceStatus,
+FileStatus, RunStatus and a stream session's status — and deliberately does not merge them (see the comments on EvidenceStatus).
 The palette below keeps that separation visible while making the *shared* meaning
 legible at a glance: anything amber is in flight, anything red stopped, anything green
-finished. A reader learns the colours once and reads all four enums with them.
+finished. A reader learns the colours once and reads every enum with them.
 
 The one asymmetry worth stating: `evidence_status: null` is NOT the same as pending.
 Null means the violation predates evidence-worker, so nothing will ever build its clip.
@@ -52,6 +52,15 @@ _CHIPS: dict[str, tuple[str, str]] = {
     "completed": _BLUE,
     # FileStatus
     "uploaded": _GREEN,
+    # RunStatus — 'completed'/'failed' shared with the above. 'invalid' is its own
+    # colour: the run finished, but under a document later found wrong.
+    "queued": _SLATE,
+    "running": _AMBER,
+    "invalid": _VIOLET,
+    # Stream session status
+    "recording": _AMBER,
+    "stopping": _AMBER,
+    "stopped": _BLUE,
     # Severity
     "LOW": _GREEN,
     "MEDIUM": _AMBER,
@@ -214,6 +223,13 @@ def bytes_human(n: int | None) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} GB"
+
+
+def run_frames(run: dict) -> str:
+    """A run's frame span. No range means the run covered the whole video."""
+    if run.get("frame_start") is None:
+        return "whole video"
+    return f"frames {run['frame_start']}–{run['frame_end']}"
 
 
 def frame_time(frame_index: int | None, fps: float | None) -> str:

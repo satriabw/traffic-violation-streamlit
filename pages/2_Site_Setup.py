@@ -13,6 +13,7 @@ because the API does not, and pretending otherwise would misdescribe what the bu
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import mimetypes
 
@@ -104,6 +105,25 @@ def versioned_section(resource: str, file_type: str, title: str, blurb: str, typ
             cols[2].caption(f"{file['name']} · {ui.bytes_human(file.get('size_bytes'))}")
         except (ApiError, ApiUnreachable):
             pass
+
+        with st.expander(f"Found v{active['version']} wrong?"):
+            st.caption(
+                "Marks every run judged under this version invalid: they leave the run "
+                "list and their violations leave the review queue. The version itself "
+                "stays — upload a corrected one and run detection again."
+            )
+            reason = st.text_input("Reason", key=f"reason_{resource}")
+            if st.button(
+                "Invalidate its runs",
+                key=f"invalidate_{resource}",
+                disabled=not reason.strip(),
+            ):
+                try:
+                    n = client.invalidate_doc(site["id"], resource, active["id"], reason.strip())
+                except (ApiError, ApiUnreachable) as exc:
+                    ui.error(exc)
+                else:
+                    st.success(f"{n} run(s) marked invalid.")
     else:
         st.info(f"No {resource[:-1]} attached yet.", icon="📄")
 
@@ -146,7 +166,8 @@ with configuration_tab:
         "Scene configuration",
         "Which rules to check, and the road areas (polygons) they apply to. An area "
         "counts as a lane only when it is listed under `lanes`, whatever its name, and "
-        "`controls` sets which lanes each traffic light governs.",
+        "`controls` sets which lanes each traffic light governs. The optional `rules` "
+        "block names the ROIs each rule reads; a rule without one reads every ROI.",
         ["json"],
     )
 
@@ -154,18 +175,22 @@ with configuration_tab:
         st.caption(
             "Start from this template. Only format version 1 is accepted, and unknown "
             "section names are rejected — so a misspelt section name gives an error instead "
-            "of silently disabling a rule. Each area needs at least three corner points."
+            "of silently disabling a rule. Each area needs at least three corner points. "
+            "A `rules` entry may only name a rule listed under `violations` and ROIs "
+            "declared under `rois`. Red light running (`rlr_violation`) is switched off on "
+            "the server until it is validated."
         )
         starter = {
             "version": 1,
-            "violations": ["rlr_violation"],
+            "violations": ["pdx_violation"],
             "regions": {
                 "lanes": [{"id": "lane_1", "points": [[115, 640], [430, 640], [400, 470], [210, 470]]}],
                 "traffic_lights": [
                     {"id": "tl_1", "points": [[610, 90], [650, 90], [650, 160], [610, 160]], "controls": ["lane_1"]}
                 ],
-                "rois": [{"id": "roi_1", "points": [[100, 430], [700, 430], [700, 520], [100, 520]]}],
+                "rois": [{"id": "crosswalk_1", "points": [[100, 430], [700, 430], [700, 520], [100, 520]]}],
             },
+            "rules": {"pdx_violation": {"rois": ["crosswalk_1"]}},
         }
         body = json.dumps(starter, indent=2)
         st.code(body, language="json")
@@ -179,8 +204,8 @@ with configuration_tab:
 with source_tab:
     st.markdown("#### Active source")
     st.caption(
-        "Adding a new video keeps the previous ones on record. A detection run that has "
-        "already started keeps using the video it started with."
+        "Adding a new source keeps the previous ones on record. A detection session that "
+        "has already started keeps using the source it started with."
     )
 
     try:
@@ -204,19 +229,17 @@ with source_tab:
                 f"{metadata.get('duration_seconds', 0):.2f}s · kind `{source['kind']}`"
             )
         if estimated:
-            # The number is this page's arithmetic, not the backend's — and the
-            # backend is the one detection asks. Saying so here is the difference
-            # between a reader who understands the 409 and one who thinks it is a bug.
-            st.warning(
+            # The number is this page's arithmetic, not the backend's, so it is
+            # marked as such.
+            st.info(
                 "The number of frames shown is estimated from the video length and frame rate, "
-                "because this video file does not record it. **Detection cannot run on this "
-                "video.** Upload it again and it will be converted to MP4 automatically, which "
-                "fixes this.",
-                icon="⚠️",
+                "because this video file does not record it. Detection still runs: frames "
+                "are counted as the video is cut into pieces.",
+                icon="ℹ️",
             )
         st.caption(f"source `{source['id']}`")
     else:
-        st.info("No video attached yet. Detection needs a video to run.", icon="🎥")
+        st.info("No source attached yet. Detection needs a video or a live feed to run.", icon="🎥")
 
     st.divider()
     video, stream = st.tabs(["Upload a video", "Use a live camera feed"])
@@ -227,22 +250,36 @@ with source_tab:
             "rejected now rather than failing detection later."
         )
         st.caption(
-            "Some video formats (such as MKV) do not record how many frames they contain, "
-            "which detection needs. These are converted to MP4 automatically before "
-            "uploading, with no loss of quality."
+            "Some video formats (such as MKV) do not record how many frames they contain. "
+            "These are converted to MP4 automatically before uploading, with no loss of "
+            "quality, so the frame count can be shown exactly."
         )
         uploaded = st.file_uploader("Video file", type=["mp4", "mov", "mkv", "avi"], key="up_video")
+        known = st.checkbox(
+            "I know when this video was recorded",
+            key="recorded_known",
+            help="Optional. Stored on the source so detections can be placed in real time.",
+        )
+        recorded_at = None
+        if known:
+            when = st.columns(2)
+            day = when[0].date_input("Recording date", key="recorded_date")
+            clock = when[1].time_input("Start time (local)", key="recorded_time", step=60)
+            # The API refuses a naive datetime, so this machine's zone is attached.
+            recorded_at = dt.datetime.combine(day, clock).astimezone().isoformat()
         if uploaded and st.button("Upload and use this video", type="primary", key="btn_video"):
             upload_and_attach(
                 uploaded,
                 "video",
-                lambda file_id: client.create_source(site["id"], "video", file_id=file_id),
+                lambda file_id: client.create_source(
+                    site["id"], "video", file_id=file_id, recorded_at=recorded_at
+                ),
             )
 
     with stream:
         st.caption(
-            "A live camera feed is not checked when added. Note that detection currently "
-            "works only on uploaded videos, not live feeds."
+            "A live camera feed is not checked when added; it is probed when detection "
+            "starts, and recorded until you stop it on the Detection page."
         )
         url = st.text_input("Stream URL", placeholder="rtsp://…", key="stream_url_input")
         if url and st.button("Add live feed", key="btn_stream"):
@@ -262,11 +299,12 @@ st.divider()
 st.markdown("#### Ready to detect?")
 
 try:
+    is_stream = bool(source and source.get("kind") == "stream")
     checks = [
-        ("Video attached", bool(source and source.get("kind") == "video")),
+        ("Video or live feed attached", bool(source)),
         (
-            "Video checked",
-            bool(source and (source.get("metadata") or {}).get("total_frames")),
+            "Live feed (checked when detection starts)" if is_stream else "Video checked",
+            is_stream or bool(source and (source.get("metadata") or {}).get("fps")),
         ),
         ("Configuration attached", client.get_active_doc(site["id"], "configurations") is not None),
         ("Calibration attached", client.get_active_doc(site["id"], "calibrations") is not None),

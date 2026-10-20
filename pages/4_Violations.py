@@ -7,7 +7,7 @@ drag every track's trajectory along with it, and only the detail route pays for 
 
 THE EXPLAIN BUTTON IS A POST AND IT DOES NOT WAIT. The route answers 202 and hands the
 work to an actor; the answer arrives on the row tens of seconds later. So the button
-fires and then polls `status`, which is exactly what the route's docstring says a client
+fires and then polls `explanation_status`, which is exactly what the route's docstring says a client
 should do. Nothing here blocks a request thread on a model call.
 """
 
@@ -84,7 +84,7 @@ if selected:
 
     st.title(violation["type"].replace("_", " ").title())
     st.markdown(
-        ui.labelled_chip("explanation", violation["status"])
+        ui.labelled_chip("explanation", violation["explanation_status"])
         + "&nbsp;&nbsp;&nbsp;"
         + ui.labelled_chip("evidence", violation.get("evidence_status"))
         + "&nbsp;&nbsp;&nbsp;"
@@ -94,6 +94,23 @@ if selected:
     st.caption(
         f"`{violation['id']}` · detected {ui.ts(violation['detected_at'])} · "
         f"{ui.frame_time(frame_index, fps)}"
+    )
+
+    def _version(label: str, version: int | None) -> str:
+        return f"{label} v{version}" if version is not None else f"no {label}"
+
+    # Pinned when the session started, so these name what the violation was judged
+    # under — not what the site has attached now.
+    st.caption(
+        " · ".join(
+            [
+                (violation.get("source_name") or "source")
+                + (f" v{violation['source_version']}" if violation.get("source_version") is not None else ""),
+                _version("calibration", violation.get("calibration_version")),
+                _version("configuration", violation.get("configuration_version")),
+                f"run `{violation['run_id']}`",
+            ]
+        )
     )
 
     if violation.get("evidence_status") is None:
@@ -138,7 +155,7 @@ if selected:
 
         if violation.get("thumbnail_url"):
             try:
-                raw = fetch_bytes(violation["thumbnail_key"], violation["thumbnail_url"])
+                raw = fetch_bytes(violation["thumbnail_key"], client.absolute(violation["thumbnail_url"]))
             except requests.RequestException as exc:
                 st.error(f"Could not load the image: {exc}", icon="🖼️")
             else:
@@ -160,7 +177,7 @@ if selected:
 
         if violation.get("clip_url"):
             st.markdown("**Clip**")
-            st.video(violation["clip_url"])
+            st.video(client.absolute(violation["clip_url"]))
             st.caption(
                 "The clip covers the same time span as the violation record."
             )
@@ -173,7 +190,7 @@ if selected:
         # of reasoning, the observations and the plate note are all free text the model
         # wrote, and any of them can carry an escape that was never decoded.
         detail = ui.unescape(violation.get("explanation_detail"))
-        status = violation["status"]
+        status = violation["explanation_status"]
 
         if status == "explained" and detail:
             if not detail.get("flag_sustained", True):
@@ -255,8 +272,8 @@ if selected:
                     except (ApiError, ApiUnreachable) as exc:
                         ui.error(exc)
                         break
-                    if current["status"] != "pending":
-                        box.success(f"Finished: {current['status']}.", icon="✅")
+                    if current["explanation_status"] != "pending":
+                        box.success(f"Finished: {current['explanation_status']}.", icon="✅")
                         time.sleep(0.6)
                         st.rerun()
                     box.info(
@@ -351,29 +368,51 @@ if selected:
 
 st.title("🚨 Violations")
 st.caption(
-    f"**{site['name']}** — the violations that hold under the setup this site is running "
-    "now. There are no filter parameters, and the absence is the design: re-calibrate a "
-    "site and this list changes without a violation being touched."
+    f"**{site['name']}** — the current violations: a newer run replaces an older one's "
+    "only where it covers the same frames and type, and runs judged under a document "
+    "later marked invalid are left out."
 )
 
 st.session_state.setdefault("violations_offset", 0)
-per_page = st.selectbox("Per page", [6, 12, 24, 48], index=1)
+controls = st.columns([1, 3])
+per_page = controls[0].selectbox("Per page", [6, 12, 24, 48], index=1)
 
 try:
-    page = client.list_violations(site["id"], limit=per_page, offset=st.session_state["violations_offset"])
+    runs = client.list_runs(site["id"], limit=100)["items"]
+except (ApiError, ApiUnreachable):
+    runs = []
+run_labels = {
+    r["id"]: f"{ui.ts(r['created_at'], with_seconds=False)} · {ui.run_frames(r)} · {r['status']}"
+    for r in runs
+}
+run_id = controls[1].selectbox(
+    "Run",
+    [None, *run_labels],
+    format_func=lambda r: "All runs" if r is None else run_labels[r],
+    help="One run per window of footage, newest first.",
+    on_change=lambda: st.session_state.update(violations_offset=0),
+)
+
+try:
+    page = client.list_violations(
+        site["id"], limit=per_page, offset=st.session_state["violations_offset"], run_id=run_id
+    )
 except (ApiError, ApiUnreachable) as exc:
     ui.error(exc)
     st.stop()
 
 if not page["items"]:
-    ui.empty("No violations recorded for this site.", "Start a run on the Detection page.")
+    ui.empty(
+        "No violations recorded for this run." if run_id else "No violations recorded for this site.",
+        "Start a run on the Detection page.",
+    )
     st.stop()
 
 fps, _ = source_facts(site["id"], page["items"][0].get("source_id"))
 
 counts: dict[str, int] = {}
 for item in page["items"]:
-    counts[item["status"]] = counts.get(item["status"], 0) + 1
+    counts[item["explanation_status"]] = counts.get(item["explanation_status"], 0) + 1
 st.markdown(
     " ".join(ui.chip(status, f"{status} {n}") for status, n in counts.items()),
     unsafe_allow_html=True,
@@ -388,7 +427,7 @@ for i, item in enumerate(page["items"]):
             if item.get("thumbnail_url"):
                 try:
                     st.image(
-                        fetch_bytes(item["thumbnail_key"], item["thumbnail_url"]),
+                        fetch_bytes(item["thumbnail_key"], client.absolute(item["thumbnail_url"])),
                         width="stretch",
                     )
                 except requests.RequestException:
@@ -401,7 +440,7 @@ for i, item in enumerate(page["items"]):
 
             st.markdown(f"**{item['type'].replace('_', ' ').title()}**")
             st.markdown(
-                ui.chip(item["status"])
+                ui.chip(item["explanation_status"])
                 + "&nbsp;"
                 + ui.chip(item.get("evidence_status"))
                 + ("&nbsp;" + ui.chip(item["severity"]) if item.get("severity") else ""),

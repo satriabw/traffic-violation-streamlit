@@ -1,10 +1,12 @@
-"""Trigger a detection run and watch violations arrive.
+"""Start a detection session and watch its runs.
 
-202 AND NOTHING IS FINISHED. The endpoint returns a DetectionJob, which is a description
-of work that has been queued — not a result and not a resource that can be fetched back.
-There is no GET for a job, so this page cannot poll one; what it polls instead is the
-site's violation count, which is the only observable the API actually offers. The job
-card below is kept in session state purely so the operator can see what was sent.
+202 AND NOTHING IS FINISHED. The endpoint returns a stream session: the ingestion
+worker picks it up, cuts the source into short pieces and queues one detection run per
+window. There is no GET for a session, so what this page watches is the site's runs —
+each one a window with its own status — which is the progress the API actually offers.
+
+A video's session ends by itself once every window is queued. A live stream's records
+until someone stops it, which is what the Stop button is for.
 """
 
 from __future__ import annotations
@@ -37,32 +39,39 @@ except (ApiError, ApiUnreachable) as exc:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# What the job will be
+# What the session will read
 # ---------------------------------------------------------------------------
 
-st.markdown("#### Video")
+st.markdown("#### Source")
 
 if not source:
-    st.warning("This site has no video yet. Add one on Site Setup.", icon="⚠️")
-elif source["kind"] != "video":
-    st.warning(
-        "Detection works only on uploaded videos, not live camera feeds.",
-        icon="⚠️",
-    )
+    st.warning("This site has no source yet. Add a video or a live feed on Site Setup.", icon="⚠️")
 else:
     metadata = source.get("metadata") or {}
     cols = st.columns(4)
-    cols[0].markdown(ui.labelled_chip("status", source["status"]), unsafe_allow_html=True)
-    cols[1].metric("Frames", metadata.get("total_frames") or "—")
-    cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
-    cols[3].metric("Duration", f"{metadata.get('duration_seconds', 0):.1f}s")
+    cols[0].markdown(
+        ui.labelled_chip("status", source["status"]) + "&nbsp;&nbsp;" + ui.chip(source["kind"]),
+        unsafe_allow_html=True,
+    )
+    if source["kind"] == "video":
+        cols[1].metric("Frames", metadata.get("total_frames") or "—")
+        cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
+        cols[3].metric("Duration", f"{metadata.get('duration_seconds', 0):.1f}s")
+    else:
+        cols[1].caption(f"**stream url**\n\n`{source.get('stream_url')}`")
+        cols[2].metric("FPS", f"{metadata['fps']:g}" if metadata.get("fps") else "—")
+        st.caption(
+            "A live feed is probed when detection starts, not when it is added: an "
+            "unreadable feed is refused then, and its frame rate and size are saved."
+        )
     st.caption(
-        f"Video version {source['version']}. A run keeps using this version even if a new "
-        "video is added before it starts."
+        f"Source version {source['version']}. The calibration and configuration active "
+        "now are pinned to the session, so attaching new ones later does not change "
+        "what it judges with."
     )
 
 st.divider()
-st.markdown("#### Start a detection run")
+st.markdown("#### Start detection")
 
 types = st.multiselect(
     "Violation types",
@@ -70,62 +79,109 @@ types = st.multiselect(
     default=[],
     format_func=lambda t: t.replace("_", " "),
     help=(
-        "Leave empty to check all available violation types, including any added in the "
-        "future."
+        "Leave empty to check every type the server has switched on. Asking for a type "
+        "that is switched off (red light running, until it is validated) is refused."
     ),
 )
 if not types:
-    st.caption("None selected: all violation types will be checked.")
+    st.caption("None selected: every switched-on violation type will be checked.")
 
-runnable = bool(source and source["kind"] == "video" and (source.get("metadata") or {}).get("total_frames"))
+runnable = bool(
+    source
+    and (source["kind"] == "stream" or (source.get("metadata") or {}).get("fps"))
+)
 
-if st.button("Start detection", type="primary", disabled=not runnable):
+start, stop = st.columns(2)
+if start.button("Start detection", type="primary", disabled=not runnable, width="stretch"):
     try:
-        job = client.detect(site["id"], types or None)
+        session = client.detect(site["id"], types or None)
     except (ApiError, ApiUnreachable) as exc:
         ui.error(exc)
     else:
-        st.session_state["last_job"] = job
+        st.session_state["last_session"] = session
         st.session_state["violations_before"] = before
         st.toast("Detection started", icon="🎯")
 
-job = st.session_state.get("last_job")
-if job and job["site_id"] == site["id"]:
-    st.markdown("#### Last detection run started")
+if source and source["kind"] == "stream":
+    if stop.button("Stop recording", width="stretch"):
+        try:
+            client.stop_source(site["id"], source["id"])
+        except ApiError as exc:
+            if exc.status == 409:
+                st.info("This feed is not being recorded.", icon="ℹ️")
+            else:
+                ui.error(exc)
+        except ApiUnreachable as exc:
+            ui.error(exc)
+        else:
+            st.toast("Stopping — the last piece is closed and its windows still run.", icon="⏹️")
+
+session = st.session_state.get("last_session")
+if session and session["site_id"] == site["id"]:
+    st.markdown("#### Last session started")
     with st.container(border=True):
         cols = st.columns(4)
-        cols[0].caption(f"**run id**\n\n`{job['id']}`")
-        cols[1].caption(
-            f"**frames**\n\n{job['frame_range']['start']}–{job['frame_range']['end']}"
-        )
+        cols[0].caption(f"**session id**\n\n`{session['id']}`")
+        cols[1].markdown(ui.labelled_chip("status", session["status"]), unsafe_allow_html=True)
         cols[2].caption(
-            f"**calibration**\n\nv{job['calibration_version']}"
-            if job.get("calibration_version") is not None
+            f"**calibration**\n\n`{session['calibration_id']}`"
+            if session.get("calibration_id")
             else "**calibration**\n\nnone"
         )
         cols[3].caption(
-            f"**configuration**\n\nv{job['configuration_version']}"
-            if job.get("configuration_version") is not None
+            f"**configuration**\n\n`{session['configuration_id']}`"
+            if session.get("configuration_id")
             else "**configuration**\n\nnone"
         )
         st.markdown(
-            " ".join(ui.chip(t, t.replace("_", " ")) for t in job["types"]),
+            " ".join(ui.chip(t, t.replace("_", " ")) for t in session["types"]),
             unsafe_allow_html=True,
         )
-        st.caption(
-            "The calibration and configuration versions above are fixed when the run "
-            "starts. Files uploaded later do not affect this run."
-        )
+        st.caption("The status above is as it was when the session started; the runs below are live.")
     with st.expander("Technical details"):
-        st.json(job)
+        st.json(session)
 
 # ---------------------------------------------------------------------------
-# Watch for results
+# Watch the runs
 # ---------------------------------------------------------------------------
 
 st.divider()
-st.markdown("#### Results")
+st.markdown("#### Runs")
+st.caption("One run per window of footage, newest first.")
 
+
+def draw_runs(runs: list[dict]) -> None:
+    counts: dict[str, int] = {}
+    for run in runs:
+        counts[run["status"]] = counts.get(run["status"], 0) + 1
+    st.markdown(
+        " ".join(ui.chip(status, f"{status} {n}") for status, n in counts.items()),
+        unsafe_allow_html=True,
+    )
+    for run in runs:
+        cols = st.columns([1, 2, 2, 3])
+        cols[0].markdown(ui.chip(run["status"]), unsafe_allow_html=True)
+        cols[1].caption(ui.run_frames(run))
+        cols[2].caption(ui.ts(run["created_at"], with_seconds=True))
+        cols[3].caption(run.get("error") or " ".join(t.replace("_", " ") for t in run["types"]))
+
+
+try:
+    page = client.list_runs(site["id"], limit=20)
+except (ApiError, ApiUnreachable) as exc:
+    ui.error(exc)
+    st.stop()
+
+runs_box = st.container()
+if page["items"]:
+    with runs_box:
+        draw_runs(page["items"])
+        if page["total"] > len(page["items"]):
+            st.caption(f"Showing the latest {len(page['items'])} of {page['total']}.")
+else:
+    runs_box.caption("No runs yet. A session's runs appear once the ingestion worker cuts the first window.")
+
+st.divider()
 current = st.columns(3)
 current[0].metric(
     "Violations recorded",
@@ -140,47 +196,35 @@ if current[1].button("Refresh", width="stretch"):
 
 watch = current[2].toggle(
     "Update automatically",
-    help="Checks for new violations every 3 seconds, for up to two minutes.",
+    help="Checks the runs every 3 seconds, for up to two minutes, until none is queued or running.",
 )
 
 if watch:
-    baseline = st.session_state.get("violations_before", before)
     placeholder = st.empty()
     deadline = time.time() + 120
     while time.time() < deadline:
         try:
+            runs = client.list_runs(site["id"], limit=20)["items"]
             total = client.list_violations(site["id"], limit=1)["total"]
         except (ApiError, ApiUnreachable) as exc:
             ui.error(exc)
             break
-        if total > baseline:
-            placeholder.success(f"{total - baseline} new violation(s) recorded.", icon="🚨")
+        busy = sum(r["status"] in ("queued", "running") for r in runs)
+        if runs and not busy:
+            placeholder.success(f"No run is queued or running. {total} violations recorded.", icon="✅")
             break
         placeholder.info(
-            f"Watching… {total} violations recorded. "
+            f"Watching… {busy} run(s) queued or running, {total} violations recorded. "
             f"{int(deadline - time.time())}s left of automatic checking.",
             icon="⏳",
         )
         time.sleep(3)
     else:
         placeholder.warning(
-            "Stopped checking after two minutes. Detection may still be running — it "
-            "processes the whole video, so a long video takes a while. Press Refresh to "
-            "check again.",
+            "Stopped checking after two minutes. Runs may still be going — a long video "
+            "or a live feed produces many windows. Press Refresh to check again.",
             icon="⌛",
         )
 
 if before and st.button("Review violations →"):
     st.switch_page("pages/4_Violations.py")
-
-with st.expander("Why there is no progress bar"):
-    st.markdown(
-        """
-The system does not report how far along a detection run is — it only records
-violations as they are found. The violation count above is therefore the only reliable
-sign of progress; a progress bar would have to show a made-up number.
-
-Each run processes the entire video in one go. Splitting long videos into shorter,
-overlapping segments is planned for a later version.
-"""
-    )

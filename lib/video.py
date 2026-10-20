@@ -3,8 +3,8 @@
 WHY THIS EXISTS. site-service probes a video as it is attached and stores whatever the
 container header tells it. Matroska does not record a frame count — ffprobe answers
 `nb_frames=N/A` — so an .mkv attaches with fps, duration and resolution but no
-`total_frames`. That is not cosmetic: the detect endpoint refuses a source without one
-(409 "Video metadata is not available"), because a job needs a frame range to bound it.
+`total_frames`. Detection no longer needs it — the ingestion worker counts frames as it
+cuts the video into pieces — but the pages show it, and an exact count beats an estimate.
 MP4 keeps a sample table, so the same footage in an MP4 probes complete.
 
 So the fix is at the container, before the bytes ever leave here: remux to MP4 and the
@@ -149,7 +149,7 @@ def ensure_frame_count(data: bytes, name: str, content_type: str | None):
             name,
             content_type,
             f"`{name}` carries no frame count and could not be remuxed. Attaching it "
-            "as-is — detection will refuse it with 409.",
+            "as-is; its frame count will be shown as an estimate.",
         )
     finally:
         shutil.rmtree(directory, ignore_errors=True)
