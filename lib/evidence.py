@@ -549,7 +549,7 @@ def ground_plot(
     )
 
     # Direct labels at each path's end. Not decoration: aqua sits under 3:1 on a light
-    # surface, and the relief rule for that is visible labels or a table — both ship.
+    # surface, and the relief rule for that is visible labels, which these are.
     ends = (
         base.transform_window(rank="rank()", sort=[alt.SortField("order", "descending")], groupby=["track"])
         .transform_filter(alt.datum.rank == 1)
@@ -625,14 +625,19 @@ def speed_plot(
     data = _frame(tracks, colours, fps).dropna(subset=["speed", "t"])
     if data.empty:
         return None
-    data = data[data["t"] >= data["t"].max() - SPEED_WINDOW_SECONDS]
+    end = float(data["t"].max())
+    start = end - SPEED_WINDOW_SECONDS
+    data = data[data["t"] >= start]
+    # Pinned to the window: a quantitative axis otherwise starts at zero, which is the
+    # start of the video, and squeezes the last ten seconds into a sliver at its end.
+    window = alt.Scale(domain=[start, end], zero=False, nice=False)
 
     scale = _scale(colours, data)
     base = alt.Chart(data)
     nearest = alt.selection_point(nearest=True, on="pointerover", fields=["t"], empty=False)
 
     line = base.mark_line(strokeWidth=2).encode(
-        x=alt.X("t:Q", title="seconds into the video", axis=_AXIS),
+        x=alt.X("t:Q", title="seconds into the video", axis=_AXIS, scale=window),
         y=alt.Y("speed:Q", title="speed (m/s)", axis=_AXIS),
         color=alt.Color("track:N", scale=scale, legend=alt.Legend(title=None, orient="top", labelColor=INK)),
     )
@@ -658,7 +663,7 @@ def speed_plot(
     )
 
     marks = [line, hover, ends]
-    if violation_t is not None:
+    if violation_t is not None and start <= violation_t <= end:
         rule = (
             alt.Chart(pd.DataFrame({"t": [violation_t]}))
             .mark_rule(color=INK_SOFT, strokeDash=[4, 4], strokeWidth=1.5)
@@ -672,12 +677,3 @@ def speed_plot(
         marks[:0] = [rule, caption]
 
     return alt.layer(*marks).properties(height=260).configure_view(strokeWidth=0)
-
-
-def table(tracks: list[Track], colours: dict[int, str], fps: float | None) -> pd.DataFrame:
-    """The same numbers as a table. Required, not optional: the relief rule for the
-    low-contrast slot in the palette is satisfied by a table view or visible labels,
-    and this ships both."""
-    return _frame(tracks, colours, fps)[["track", "frame", "t", "x", "y", "speed"]].rename(
-        columns={"t": "seconds", "x": "x (m)", "y": "y (m)", "speed": "speed (m/s)"}
-    )

@@ -329,9 +329,6 @@ if selected:
             else:
                 st.altair_chart(chart, width="stretch")
 
-        with st.expander("The same numbers, as a table"):
-            st.dataframe(evidence.table(tracks, colours, fps), width="stretch", height=300)
-
         with st.expander("Road users involved in this violation"):
             for track in involved:
                 mark = " · :red[**violator**]" if track.track_id == violator_id else ""
@@ -346,9 +343,6 @@ if selected:
                     "This record does not mark which vehicle committed the violation — it was "
                     "recorded before that information was stored."
                 )
-
-    with st.expander("Technical details"):
-        st.json(violation)
 
     st.stop()
 
