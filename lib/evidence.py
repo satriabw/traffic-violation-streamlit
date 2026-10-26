@@ -24,8 +24,9 @@ violation ever recorded.
 from __future__ import annotations
 
 import io
+import math
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import altair as alt
 import pandas as pd
@@ -49,6 +50,13 @@ ZONE = "#cbd5e1"
 # Past this many metres from the tracks a projected point is a pixel near the horizon,
 # where the projection runs off towards infinity, not a place on the road.
 ZONE_REACH_METRES = 200.0
+# Shorter than this is a detector flicker, not a person — the review's own floor.
+MIN_TRACK_SECONDS = 0.5
+# The speed chart's span, ending at the last sample. Longer than this and the lines
+# around the violation are too compressed to follow.
+SPEED_WINDOW_SECONDS = 10.0
+# Frames assumed per second when the source does not say.
+FALLBACK_FPS = 30.0
 
 
 @dataclass
@@ -121,23 +129,64 @@ def tracks_of(metadata: dict | None) -> list[Track]:
     return out
 
 
-def default_selection(tracks: list[Track], violator_id: int | None, limit: int = 3) -> list[int]:
-    """Which tracks to colour when the page first opens.
+def _foot(box) -> tuple[float, float]:
+    # Where a road user touches the ground: the bottom middle of the box.
+    return ((box[0] + box[2]) / 2, box[3])
 
-    The violator always, then the longest-lived tracks — length is a decent proxy for
-    "was actually part of this event" and needs nothing the blob does not carry.
+
+def _inside(point: tuple[float, float], polygon: list) -> bool:
+    x, y = point
+    hit = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def involved(
+    tracks: list[Track],
+    violator_id: int | None,
+    configuration: dict | None,
+    frame_index: int | None,
+    fps: float | None,
+) -> list[Track]:
+    """The violator and the pedestrians in the crosswalk during the event, violator first.
+
+    The crosswalk is the configured zone the violator was in at the flagged moment, or
+    every zone when it was in none; a pedestrian is in it when their feet are, at any
+    sample of the record — the same in-the-picture test the review uses. Without zones
+    to test against, being in the picture at the flagged moment is all that can be said.
+    Other vehicles are never involved: the violation is one vehicle's.
+
+    Pedestrians come most-time-in-the-crosswalk first, so a cap on the selection keeps
+    the ones that mattered most.
     """
-    chosen = [t.track_id for t in tracks if t.track_id == violator_id]
-    rest = sorted(
-        (t for t in tracks if t.track_id != violator_id),
-        key=lambda t: len(t.frame_idxs),
-        reverse=True,
-    )
-    for track in rest:
-        if len(chosen) >= limit:
-            break
-        chosen.append(track.track_id)
-    return chosen
+    violator = next((t for t in tracks if t.kind == "vehicle" and t.track_id == violator_id), None)
+    if violator is None:
+        # Nothing ties the violation to a vehicle: everyone present at the moment.
+        return [t for t in tracks if t.bbox_at(frame_index)]
+
+    zones = [
+        [tuple(p) for p in region.get("points") or []]
+        for region in ((configuration or {}).get("regions") or {}).get("rois") or []
+    ]
+    zones = [z for z in zones if len(z) >= 3]
+    box = violator.bbox_at(frame_index)
+    crosswalks = [z for z in zones if box and _inside(_foot(box), z)][:1] or zones
+    shortest = round(MIN_TRACK_SECONDS * (fps or FALLBACK_FPS))
+
+    scored = []
+    for track in tracks:
+        if track.kind != "pedestrian" or len(track.frame_idxs) < shortest:
+            continue
+        if crosswalks:
+            hits = sum(1 for b in track.bboxes if any(_inside(_foot(b), z) for z in crosswalks))
+        else:
+            hits = 1 if track.bbox_at(frame_index) else 0
+        if hits:
+            scored.append((hits, track))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [violator, *(t for _, t in scored)]
 
 
 def colour_map(selected: Iterable[int]) -> dict[int, str]:
@@ -353,6 +402,57 @@ def _project(h: list[list[float]], point) -> tuple[float, float] | None:
     return gx / w, gy / w
 
 
+def camera_view(
+    metadata: dict | None, size: tuple[int, int] | None
+) -> Callable[[float, float], tuple[float, float]] | None:
+    """A turn of the ground plane that lays it out the way the camera looks at it.
+
+    The ground frame's axes are wherever the calibration put them, so a plot of it raw
+    can show the road sideways or mirrored next to the picture it came from. This puts
+    the ground under the bottom middle of the picture at the origin, "into the picture"
+    up and the picture's right to the right. A rotation (and at most a mirror), never a
+    stretch: distances stay metres.
+    """
+    h = (metadata or {}).get("ground_from_pixel")
+    if not h or not size or not size[0] or not size[1]:
+        return None
+    width, height = size
+    origin = _project(h, (width / 2, height))
+    right = _project(h, (width * 0.75, height))
+    # The middle of the picture can be above the horizon on a shallow camera; step down
+    # until a point lands on the ground.
+    ahead = next(
+        (g for g in (_project(h, (width / 2, height * s)) for s in (0.5, 0.7, 0.9)) if g is not None),
+        None,
+    )
+    if origin is None or right is None or ahead is None:
+        return None
+
+    fx, fy = ahead[0] - origin[0], ahead[1] - origin[1]
+    length = math.hypot(fx, fy)
+    if length < 1e-9:
+        return None
+    fx, fy = fx / length, fy / length
+    # Ahead turned a quarter clockwise, then mirrored if the ground frame is.
+    rx, ry = fy, -fx
+    if (right[0] - origin[0]) * rx + (right[1] - origin[1]) * ry < 0:
+        rx, ry = -rx, -ry
+    ox, oy = origin
+
+    def view(x: float, y: float) -> tuple[float, float]:
+        dx, dy = x - ox, y - oy
+        return dx * rx + dy * ry, dx * fx + dy * fy
+
+    return view
+
+
+def _viewed(data: pd.DataFrame, view) -> pd.DataFrame:
+    if view is None or data.empty:
+        return data
+    turned = [view(x, y) for x, y in zip(data["x"], data["y"])]
+    return data.assign(x=[p[0] for p in turned], y=[p[1] for p in turned])
+
+
 def ground_zones(metadata: dict | None, configuration: dict | None) -> pd.DataFrame:
     """The configuration's zones, and the edges they name (a crossing's kerbs), on the ground.
 
@@ -394,17 +494,23 @@ def ground_plot(
     fps: float | None,
     violation_t: float | None,
     zones: pd.DataFrame | None = None,
+    view: Callable[[float, float], tuple[float, float]] | None = None,
 ) -> alt.LayerChart | None:
     """Where the tracks went, seen from above, in metres.
 
     A separate chart rather than an overlay for the reason at the top of this file.
     Reading it as a map is the point: the axes are the ground plane, so distances
     between two paths are real distances, which is exactly what the perspective image
-    cannot tell you.
+    cannot tell you. With a `view` (see camera_view) it is turned to face the way the
+    camera does, so left and right, near and far, match the picture beside it.
     """
-    data = _frame(tracks, colours, fps).dropna(subset=["x", "y"])
+    data = _viewed(_frame(tracks, colours, fps).dropna(subset=["x", "y"]), view)
     if data.empty:
         return None
+    zones = _viewed(zones, view) if zones is not None else None
+    x_title, y_title = (
+        ("across the picture (m)", "into the picture (m)") if view else ("ground plane x (m)", "ground plane y (m)")
+    )
 
     scale = _scale(colours, data)
     base = alt.Chart(data)
@@ -420,8 +526,8 @@ def ground_plot(
             under = _zone_marks(near)
 
     path = base.mark_line(strokeWidth=2, opacity=0.9).encode(
-        x=alt.X("x:Q", title="ground plane x (m)", axis=_AXIS, scale=alt.Scale(domain=x_domain, nice=False)),
-        y=alt.Y("y:Q", title="ground plane y (m)", axis=_AXIS, scale=alt.Scale(domain=y_domain, nice=False)),
+        x=alt.X("x:Q", title=x_title, axis=_AXIS, scale=alt.Scale(domain=x_domain, nice=False)),
+        y=alt.Y("y:Q", title=y_title, axis=_AXIS, scale=alt.Scale(domain=y_domain, nice=False)),
         color=alt.Color("track:N", scale=scale, legend=alt.Legend(title=None, orient="top", labelColor=INK)),
         order="order:Q",
         detail="track:N",
@@ -513,11 +619,13 @@ def speed_plot(
     """Speed against time, with the moment the rule fired marked.
 
     One y-axis and one unit. There is no second scale here and there should never be
-    one — a second measure gets a second chart.
+    one — a second measure gets a second chart. Only the last SPEED_WINDOW_SECONDS of
+    the record are drawn; the record runs on past the violation, so it stays in view.
     """
     data = _frame(tracks, colours, fps).dropna(subset=["speed", "t"])
     if data.empty:
         return None
+    data = data[data["t"] >= data["t"].max() - SPEED_WINDOW_SECONDS]
 
     scale = _scale(colours, data)
     base = alt.Chart(data)

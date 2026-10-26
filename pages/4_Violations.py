@@ -125,18 +125,26 @@ if selected:
 
         tracks = evidence.tracks_of(violation.get("metadata"))
         violator_id = (violation.get("metadata") or {}).get("violator_track_id")
+        judged = (
+            live.configuration_version(client.base_url, site["id"], violation["configuration_id"])
+            if violation.get("configuration_id")
+            else None
+        )
+        # Only the violator and the pedestrians in the crosswalk are offered: everyone
+        # else in the frame is context, outlined in grey on the image and nowhere else.
+        involved = evidence.involved(tracks, violator_id, judged, frame_index, fps)
 
-        if tracks:
-            options = [t.track_id for t in tracks]
-            default = evidence.default_selection(tracks, violator_id)
+        if involved:
+            options = [t.track_id for t in involved]
             chosen = st.multiselect(
-                "Vehicles to highlight",
+                "Road users to highlight",
                 options,
-                default=default,
-                format_func=lambda tid: next(t.label for t in tracks if t.track_id == tid),
+                default=options[: len(evidence.SERIES)],
+                format_func=lambda tid: next(t.label for t in involved if t.track_id == tid),
                 help=(
+                    "The violating vehicle and the pedestrians in the crosswalk during the event. "
                     "Up to three at a time, so the colours stay easy to tell apart, including for "
-                    "colour-blind viewers. Other vehicles are still outlined in grey."
+                    "colour-blind viewers. Everyone else is still outlined in grey on the image."
                 ),
             )
             if len(chosen) > len(evidence.SERIES):
@@ -259,7 +267,7 @@ if selected:
 
     if tracks and colours:
         st.divider()
-        st.markdown("#### Vehicle paths")
+        st.markdown("#### Paths of the involved road users")
         st.caption(
             "Paths are shown on a top-down map in metres rather than over the video image, "
             "because camera perspective distorts distance: the same on-screen gap can be a "
@@ -281,13 +289,13 @@ if selected:
         ground, speed = st.columns(2, gap="large")
         with ground:
             st.markdown("**Top-down view of the road** (metres, estimated)")
-            judged = (
-                live.configuration_version(client.base_url, site["id"], violation["configuration_id"])
-                if violation.get("configuration_id")
-                else None
+            camera = (judged or {}).get("camera") or {}
+            picture = source_size or (
+                (camera["width"], camera["height"]) if camera.get("width") and camera.get("height") else None
             )
+            view = evidence.camera_view(violation.get("metadata"), picture)
             zones = evidence.ground_zones(violation.get("metadata"), judged)
-            chart = evidence.ground_plot(tracks, colours, fps, moment, zones)
+            chart = evidence.ground_plot(tracks, colours, fps, moment, zones, view)
             if chart is None:
                 st.info(
                     "No positions available — this site had no camera calibration when the "
@@ -297,7 +305,13 @@ if selected:
             else:
                 st.altair_chart(chart, width="stretch")
                 st.caption(
-                    "The diamond marks each vehicle's position at the moment of the violation."
+                    "The diamond marks each road user's position at the moment of the violation."
+                    + (
+                        " Turned to match the camera: up is further into the picture, left and "
+                        "right are the picture's own."
+                        if view
+                        else ""
+                    )
                     + (
                         " Dashed outlines are the configuration's zones, carried onto the ground "
                         "with the same projection as the paths; thick lines are the edges a zone "
@@ -308,7 +322,7 @@ if selected:
                 )
 
         with speed:
-            st.markdown("**Estimated speed over time** (m/s)")
+            st.markdown(f"**Estimated speed, last {evidence.SPEED_WINDOW_SECONDS:.0f} seconds** (m/s)")
             chart = evidence.speed_plot(tracks, colours, fps, moment)
             if chart is None:
                 st.info("No speeds available for the selected vehicles.", icon=":material/show_chart:")
@@ -318,8 +332,8 @@ if selected:
         with st.expander("The same numbers, as a table"):
             st.dataframe(evidence.table(tracks, colours, fps), width="stretch", height=300)
 
-        with st.expander("Vehicles in this violation"):
-            for track in tracks:
+        with st.expander("Road users involved in this violation"):
+            for track in involved:
                 mark = " · :red[**violator**]" if track.track_id == violator_id else ""
                 st.markdown(
                     f"- `{track.label}` — {len(track.frame_idxs)} samples, "
