@@ -17,7 +17,7 @@ from __future__ import annotations
 import requests
 import streamlit as st
 
-from lib import evidence, review, ui
+from lib import evidence, live, review, ui
 from lib.api import ApiError, ApiUnreachable
 
 
@@ -281,7 +281,13 @@ if selected:
         ground, speed = st.columns(2, gap="large")
         with ground:
             st.markdown("**Top-down view of the road** (metres, estimated)")
-            chart = evidence.ground_plot(tracks, colours, fps, moment)
+            judged = (
+                live.configuration_version(client.base_url, site["id"], violation["configuration_id"])
+                if violation.get("configuration_id")
+                else None
+            )
+            zones = evidence.ground_zones(violation.get("metadata"), judged)
+            chart = evidence.ground_plot(tracks, colours, fps, moment, zones)
             if chart is None:
                 st.info(
                     "No positions available — this site had no camera calibration when the "
@@ -290,7 +296,16 @@ if selected:
                 )
             else:
                 st.altair_chart(chart, width="stretch")
-                st.caption("The diamond marks each vehicle's position at the moment of the violation.")
+                st.caption(
+                    "The diamond marks each vehicle's position at the moment of the violation."
+                    + (
+                        " Dashed outlines are the configuration's zones, carried onto the ground "
+                        "with the same projection as the paths; thick lines are the edges a zone "
+                        "names, such as a crossing's kerbs."
+                        if not zones.empty
+                        else ""
+                    )
+                )
 
         with speed:
             st.markdown("**Estimated speed over time** (m/s)")

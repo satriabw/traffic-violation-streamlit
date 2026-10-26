@@ -12,6 +12,10 @@ the bottom of a frame and tens of metres apart at the top. So:
 Drawing a ground-plane path over a perspective image would put a plausible-looking line
 in the wrong place, which is worse than not drawing it at all.
 
+The one crossing the other way is the configuration's zones: they are drawn in pixels,
+and the metadata's `ground_from_pixel` (the projection the trajectories were made with)
+carries them onto the ground plot. Pixels to ground, never ground to pixels.
+
 evidence-worker deliberately bakes nothing onto the image (see cut.py: "NOTHING IS
 DRAWN ON") precisely so the rendering lives here and improving it improves every
 violation ever recorded.
@@ -40,6 +44,11 @@ MUTED = "#94a3b8"
 INK = "#0f172a"
 INK_SOFT = "#64748b"
 GRID = "#e2e8f0"
+# The configured zones: context under the tracks, so ink-grey and never a series colour.
+ZONE = "#cbd5e1"
+# Past this many metres from the tracks a projected point is a pixel near the horizon,
+# where the projection runs off towards infinity, not a place on the road.
+ZONE_REACH_METRES = 200.0
 
 
 @dataclass
@@ -335,8 +344,56 @@ _AXIS = alt.Axis(
 )
 
 
+def _project(h: list[list[float]], point) -> tuple[float, float] | None:
+    x, y = point[0], point[1]
+    gx, gy, w = (row[0] * x + row[1] * y + row[2] for row in h)
+    # w at or below zero is a pixel on or above the horizon: it has no place on the ground.
+    if w <= 1e-9:
+        return None
+    return gx / w, gy / w
+
+
+def ground_zones(metadata: dict | None, configuration: dict | None) -> pd.DataFrame:
+    """The configuration's zones, and the edges they name (a crossing's kerbs), on the ground.
+
+    Projected with the metadata's own `ground_from_pixel` rather than the site's current
+    calibration, so the zones land where the tracks were measured. The points are the
+    configuration's raw pixels, as detection read them. A zone with any point that does
+    not project is left out whole — half a polygon is a wrong shape, not a partial one.
+    One row per vertex: `zone` names the shape, `kind` is "zone" or "edge".
+    """
+    h = (metadata or {}).get("ground_from_pixel")
+    if not h or not configuration:
+        return pd.DataFrame()
+
+    rows = []
+    for layer, items in (configuration.get("regions") or {}).items():
+        for item in items or []:
+            points = item.get("points") or []
+            if len(points) < 3:
+                continue
+            ground = [_project(h, p) for p in points]
+            if any(g is None for g in ground):
+                continue
+            name = item.get("id", layer)
+            # Drawn closed, without doubling a closing point the configuration already has.
+            ring = ground if ground[0] == ground[-1] else [*ground, ground[0]]
+            rows += [{"zone": name, "kind": "zone", "label": name, "order": i, "x": x, "y": y}
+                     for i, (x, y) in enumerate(ring)]
+            for edge, (a, b) in (item.get("edges") or {}).items():
+                if max(a, b) < len(ground):
+                    label = edge.replace("_", " ")
+                    rows += [{"zone": f"{name}:{edge}", "kind": "edge", "label": label, "order": i, "x": x, "y": y}
+                             for i, (x, y) in enumerate((ground[a], ground[b]))]
+    return pd.DataFrame(rows)
+
+
 def ground_plot(
-    tracks: list[Track], colours: dict[int, str], fps: float | None, violation_t: float | None
+    tracks: list[Track],
+    colours: dict[int, str],
+    fps: float | None,
+    violation_t: float | None,
+    zones: pd.DataFrame | None = None,
 ) -> alt.LayerChart | None:
     """Where the tracks went, seen from above, in metres.
 
@@ -352,9 +409,19 @@ def ground_plot(
     scale = _scale(colours, data)
     base = alt.Chart(data)
 
+    # The axes follow the tracks, not the zones: a zone reaching far up the picture
+    # projects tens of metres away, and fitting it would shrink the paths to a smudge.
+    # Zones are clipped to the view instead.
+    x_domain, y_domain = _padded(data["x"]), _padded(data["y"])
+    under: list = []
+    if zones is not None and not zones.empty:
+        near = zones.groupby("zone").filter(lambda z: _within(z, data))
+        if not near.empty:
+            under = _zone_marks(near)
+
     path = base.mark_line(strokeWidth=2, opacity=0.9).encode(
-        x=alt.X("x:Q", title="ground plane x (m)", axis=_AXIS, scale=alt.Scale(zero=False, nice=True)),
-        y=alt.Y("y:Q", title="ground plane y (m)", axis=_AXIS, scale=alt.Scale(zero=False, nice=True)),
+        x=alt.X("x:Q", title="ground plane x (m)", axis=_AXIS, scale=alt.Scale(domain=x_domain, nice=False)),
+        y=alt.Y("y:Q", title="ground plane y (m)", axis=_AXIS, scale=alt.Scale(domain=y_domain, nice=False)),
         color=alt.Color("track:N", scale=scale, legend=alt.Legend(title=None, orient="top", labelColor=INK)),
         order="order:Q",
         detail="track:N",
@@ -384,7 +451,7 @@ def ground_plot(
         .encode(x="x:Q", y="y:Q", text="track:N")
     )
 
-    marks = [path, points, ends]
+    marks = [*under, path, points, ends]
     if violation_t is not None:
         moment = data.assign(gap=(data["t"] - violation_t).abs()).sort_values("gap").groupby("track_id").head(1)
         marks.append(
@@ -395,6 +462,49 @@ def ground_plot(
         )
 
     return alt.layer(*marks).properties(height=340).configure_view(strokeWidth=0)
+
+
+def _padded(values: pd.Series, share: float = 0.15, least: float = 2.0) -> list[float]:
+    low, high = float(values.min()), float(values.max())
+    pad = max((high - low) * share, least)
+    return [low - pad, high + pad]
+
+
+def _within(zone: pd.DataFrame, data: pd.DataFrame) -> bool:
+    cx, cy = data["x"].mean(), data["y"].mean()
+    return bool(((zone["x"] - cx).abs().max() <= ZONE_REACH_METRES)
+                and ((zone["y"] - cy).abs().max() <= ZONE_REACH_METRES))
+
+
+def _zone_marks(zones: pd.DataFrame) -> list:
+    shapes = zones[zones["kind"] == "zone"]
+    edges = zones[zones["kind"] == "edge"]
+    marks = []
+    if not shapes.empty:
+        chart = alt.Chart(shapes)
+        marks.append(
+            chart.mark_line(color=INK_SOFT, strokeDash=[4, 3], strokeWidth=1, clip=True)
+            .encode(x="x:Q", y="y:Q", order="order:Q", detail="zone:N",
+                    tooltip=[alt.Tooltip("label:N", title="Zone")])
+        )
+        marks.append(
+            chart.transform_filter(alt.datum.order == 0)
+            .mark_text(align="left", dx=4, dy=10, fontSize=10, color=INK_SOFT, clip=True)
+            .encode(x="x:Q", y="y:Q", text="label:N")
+        )
+    if not edges.empty:
+        chart = alt.Chart(edges)
+        marks.append(
+            chart.mark_line(color=INK_SOFT, strokeWidth=3, opacity=0.6, clip=True)
+            .encode(x="x:Q", y="y:Q", order="order:Q", detail="zone:N",
+                    tooltip=[alt.Tooltip("label:N", title="Edge")])
+        )
+        marks.append(
+            chart.transform_aggregate(x="mean(x)", y="mean(y)", groupby=["zone", "label"])
+            .mark_text(dy=-8, fontSize=10, fontStyle="italic", color=INK_SOFT, clip=True)
+            .encode(x="x:Q", y="y:Q", text="label:N")
+        )
+    return marks
 
 
 def speed_plot(

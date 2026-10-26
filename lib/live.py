@@ -52,14 +52,29 @@ def configuration(base_url: str, site_id: str) -> tuple[dict | None, dict | None
         row = client.get_active_doc(site_id, "configurations")
         if row is None:
             return None, None
-        file = client.get_file(row["file_id"])
-        if not file.get("download_url"):
-            return None, row
-        response = requests.get(client.absolute(file["download_url"]), timeout=30)
-        response.raise_for_status()
-        return response.json(), row
+        return _document(client, row), row
     except (ApiError, ApiUnreachable, requests.RequestException, ValueError):
         return None, None
+
+
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=64)
+def configuration_version(base_url: str, site_id: str, configuration_id: str) -> dict | None:
+    """One configuration document by id — the one a violation was judged under, which is
+    not necessarily the one the site has attached now. Cached long: a version never changes."""
+    client = Api(base_url)
+    try:
+        return _document(client, client.get_doc(site_id, "configurations", configuration_id))
+    except (ApiError, ApiUnreachable, requests.RequestException, ValueError):
+        return None
+
+
+def _document(client: Api, row: dict) -> dict | None:
+    file = client.get_file(row["file_id"])
+    if not file.get("download_url"):
+        return None
+    response = requests.get(client.absolute(file["download_url"]), timeout=30)
+    response.raise_for_status()
+    return response.json()
 
 
 def drawn_size(document: dict | None, source: dict | None) -> tuple[int, int] | None:

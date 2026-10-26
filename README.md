@@ -58,6 +58,14 @@ apart at the bottom of a frame and tens of metres apart at the top, so a ground-
 path drawn over a perspective image lands somewhere plausible and wrong. Boxes go on
 the thumbnail, paths go in their own top-down plot.
 
+**Zones cross over the other way: from pixels to the ground.** A violation's metadata
+carries `ground_from_pixel`, the projection its trajectories were made with, so the
+configuration it was judged under (by id, not the site's current one) is projected onto
+the top-down plot: zones dashed, and the edges a zone names, like a crossing's kerbs,
+drawn thick. Pixels near the horizon project towards infinity, so a zone with a point
+that does not land is left out whole, and the axes stay fitted to the tracks. Violations
+recorded before the matrix existed, or without a calibration, show no zones.
+
 **Boxes are drawn at read time, not baked in.** `evidence-worker` stores a clean frame
 on purpose, so the drawing lives here and improving it improves every violation ever
 recorded.
