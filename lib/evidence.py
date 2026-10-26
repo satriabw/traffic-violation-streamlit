@@ -302,8 +302,7 @@ def _frame(tracks: list[Track], colours: dict[int, str], fps: float | None) -> p
                     "track": track.label,
                     "track_id": track.track_id,
                     "frame": frame,
-                    # Seconds, because that is what someone scrubbing a clip needs —
-                    # the same reason the explanation is written in them.
+                    # Seconds, because that is what someone scrubbing a clip needs.
                     "t": frame / fps if fps else None,
                     "x": point[0] if point else None,
                     "y": point[1] if point else None,

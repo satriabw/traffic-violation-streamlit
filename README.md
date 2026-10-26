@@ -2,8 +2,8 @@
 
 A Streamlit operator front end for `site-service` — the demo UI for the
 [traffic-violation](../traffic-violation) backend. It covers every endpoint in
-`Traffic Violation API.postman_collection.json`, plus the two the collection lists
-without filling in (`GET .../violations` and `.../explain`).
+`Traffic Violation API.postman_collection.json`, plus the ones the collection lists
+without filling in (`GET .../violations` and the three `.../review` routes).
 
 ## Run it
 
@@ -40,7 +40,7 @@ red when `/health` stops answering. Restart the server after changing anything u
 | **Sites** | Create, filter, select, delete | `GET/POST /sites`, `GET/DELETE /sites/{id}` |
 | **Site Setup** | Upload + attach calibration, configuration, source; invalidate a wrong document's runs; readiness checklist | `POST /files`, presigned `PUT`, `POST /files/{id}/complete`, `GET/POST .../calibrations`, `.../configurations`, `POST .../{id}/invalidate`, `.../sources` |
 | **Detection** | Start a session on a video or live feed, stop a feed, watch its runs | `POST /sites/{id}/detect`, `POST .../sources/{id}/stop`, `GET .../runs` |
-| **Violations** | Review queue (filterable by run), evidence overlay, trajectories, explain | `GET .../violations?run_id=`, `GET .../violations/{id}`, `POST .../explain` |
+| **Violations** | Review queue (filterable by run), evidence overlay, trajectories, the evidence review followed live | `GET .../violations?run_id=`, `GET .../violations/{id}`, `POST/GET .../review`, `GET .../review/events` |
 | **Files** | Upload without attaching; look up by id | `POST /files`, `PUT`, `POST .../complete`, `GET /files/{id}` |
 
 ## Things that are the way they are for a reason
@@ -67,10 +67,18 @@ two series can end up adjacent, and only the first three slots of the palette cl
 colour-vision-deficiency floors under all-pairs comparison. A fourth hue would be a
 worse chart, not a fuller one. Everything unselected is still outlined, in grey.
 
-**The explain button polls; it does not wait.** `POST .../explain` answers 202 and hands
-the work to an actor. 200 means there was nothing to do — already explained, or already
-pending — so the button is safe to press repeatedly and only the first press spends
-money.
+**The review is followed, not polled.** `POST .../review` answers 202 and hands the
+work to an actor; 200 means one is already running or finished, so the button is safe
+to press repeatedly and only the first press spends money. The page then reads
+`GET .../review/events` — server-sent events the backend writes as the review goes —
+and redraws its steps in place until the stream ends. The finished review comes from
+`GET .../review`. A finished review's events are played back at up to 1.5 s apart, so
+the steps (facts, questions to the legal source, answers) are read only when "Show the
+steps it took" is switched on, and cached after.
+
+**The review lives in the violation's explanation columns.** `explanation_status` is
+still the field on a violation: `detected` is not reviewed, `pending` is running,
+`explained` is completed. The page shows them in the review's words.
 
 **`evidence_status: null` is not `pending`.** Null means the violation predates
 `evidence-worker` and nothing will ever build its clip. It renders grey and says
@@ -93,6 +101,7 @@ app.py              overview / landing
 lib/api.py          every endpoint, as functions; knows nothing about Streamlit
 lib/ui.py           status-chip vocabulary, sidebar, error rendering, formatting
 lib/evidence.py     box drawing, ground plot, speed plot, the table view
+lib/review.py       the evidence review: drawing it, and following its event stream
 pages/              one file per page, numbered for sidebar order
 ```
 

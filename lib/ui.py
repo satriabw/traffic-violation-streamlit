@@ -66,18 +66,11 @@ _CHIPS: dict[str, tuple[str, str]] = {
     "recording": _AMBER,
     "stopping": _AMBER,
     "stopped": _BLUE,
-    # Severity
-    "LOW": _GREEN,
-    "MEDIUM": _AMBER,
-    "HIGH": _RED,
-    # EvidenceStrength — same three words as Severity in two cases, and they are
-    # graded independently, so they are never drawn side by side without a label.
-    "STRONG": _GREEN,
-    "WEAK": _RED,
-    # PlateRecoverability
-    "anpr_rerun": _VIOLET,
-    "manual_read": _BLUE,
-    "inconclusive": _SLATE,
+    # A review's open questions. 'open' is still in flight; 'unanswerable' is grey
+    # rather than red, because a question with no answer is a finding, not a failure.
+    "open": _AMBER,
+    "settled": _GREEN,
+    "unanswerable": _SLATE,
     # Our own
     "none": _SLATE,
 }
@@ -103,16 +96,15 @@ def chips(*values: Any) -> None:
     )
 
 
-def labelled_chip(label: str, value: Any) -> str:
+def labelled_chip(label: str, value: Any, text: str | None = None) -> str:
     """A pill with its enum named in front of it.
 
-    Used wherever two enums that share vocabulary appear together — severity MEDIUM
-    beside evidence-strength MEDIUM is meaningless without the labels, and the backend
-    is emphatic that conflating the two is the mistake to avoid.
+    Used wherever two enums that share vocabulary appear together — a violation's
+    review `failed` beside its evidence `failed` says nothing without the labels.
     """
     return (
         f'<span style="color:#757575;font-size:0.78rem;margin-right:4px;">'
-        f"{html.escape(label)}</span>{chip(value)}"
+        f"{html.escape(label)}</span>{chip(value, text)}"
     )
 
 
@@ -379,7 +371,7 @@ def frame_time(frame_index: int | None, fps: float | None) -> str:
     """A frame index as seconds into the clip.
 
     The backend is consistent that frames are the storage unit and seconds are what a
-    person scrubbing footage needs — ViolationExplanation says so explicitly — so
+    person scrubbing footage needs, so
     anywhere a frame index is shown, this shows the time beside it.
     """
     if frame_index is None:
@@ -421,10 +413,10 @@ def unescape(value: Any) -> Any:
     the API sees it; this only stops *this* page from showing it.
 
     So the real fix is at the llm-service boundary, and this is not a substitute for it
-    — it is what keeps the reviewer's note readable until that happens.
+    — it is what keeps the review readable until that happens.
 
-    Walks lists and dicts because the explanation is a document: the prose, the two
-    lists of reasoning, the observations and the plate note are all free text, and
+    Walks lists and dicts because the review is a document: the summary, every
+    recommendation and the points under it are free text the model wrote, and
     normalising the whole thing once means a field added later is covered without
     anyone remembering to come back here.
     """

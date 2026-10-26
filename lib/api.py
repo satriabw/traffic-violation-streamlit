@@ -14,9 +14,10 @@ read off the URL rather than chosen.
 
 from __future__ import annotations
 
+import json
 import os
 import urllib.parse
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 import requests
 
@@ -30,6 +31,7 @@ API_PREFIX = "/api/v1"
 # VIOLATION_TYPES setting (red light is off until it is validated), and asking for one
 # that is off is a 422 rather than a silent skip — so the list here is not a promise.
 VIOLATION_TYPES = ("red_light_running", "pedestrian_right_of_way")
+REVIEW_STATUSES = ("running", "completed", "failed")
 FILE_TYPES = ("calibration", "configuration", "video", "evidence_frame")
 SOURCE_KINDS = ("video", "stream")
 RUN_STATUSES = ("queued", "running", "completed", "failed", "invalid")
@@ -424,13 +426,70 @@ class Api:
     def get_violation(self, site_id: str, violation_id: str) -> dict:
         return self._request("GET", f"/sites/{site_id}/violations/{violation_id}")
 
-    def explain(self, site_id: str, violation_id: str) -> dict:
-        """Ask for an explanation. Safe to call repeatedly — see the route's docstring:
-        202 means work was accepted, 200 means there was nothing to do, and the body is
-        the violation either way. The caller polls `status` rather than waiting."""
+    # ---- reviews ----------------------------------------------------------
+
+    def start_review(self, site_id: str, violation_id: str) -> dict:
+        """Ask for the evidence review. Safe to call repeatedly: 202 means a review was
+        started, 200 that one is already running or finished, and the body is the
+        ViolationReview either way. A failed review is started again."""
         return self._request(
-            "POST", f"/sites/{site_id}/violations/{violation_id}/explain"
+            "POST", f"/sites/{site_id}/violations/{violation_id}/review"
         )
+
+    def get_review(self, site_id: str, violation_id: str) -> dict | None:
+        """The review's status and, once completed, the review itself. None when the
+        violation has never been sent for review — an ordinary state, not an error."""
+        try:
+            return self._request(
+                "GET", f"/sites/{site_id}/violations/{violation_id}/review"
+            )
+        except ApiError as exc:
+            if exc.status == 404 and "not been reviewed" in exc.detail:
+                return None
+            raise
+
+    def review_events(
+        self, site_id: str, violation_id: str, after: int = -1
+    ) -> Iterator[dict]:
+        """The review's steps as they are written, one ReviewEvent dict at a time.
+
+        Server-sent events. A running review is followed until it finishes; a finished
+        one is played back at up to 1.5 s between steps, so this is not the way to read
+        a finished review quickly — get_review is. The stream ends by itself either way.
+        The first item of a playback is {"type": "replay"}, which carries no data.
+        """
+        url = self._url(f"/sites/{site_id}/violations/{violation_id}/review/events")
+        try:
+            response = self.session.get(
+                url,
+                params={"after": after},
+                headers={"Accept": "text/event-stream"},
+                stream=True,
+                # Connect quickly, but a model turn can be silent for a long while.
+                timeout=(self.timeout, 300),
+            )
+        except requests.exceptions.RequestException as exc:
+            raise ApiUnreachable(f"Could not follow the review: {exc}") from exc
+        with response:
+            if response.status_code >= 400:
+                raise ApiError(response.status_code, _detail_of(response), url)
+            kind, data = None, []
+            try:
+                for line in response.iter_lines(decode_unicode=True):
+                    if line is None:
+                        continue
+                    if line == "":
+                        if kind == "replay":
+                            yield {"type": "replay"}
+                        elif data:
+                            yield json.loads("\n".join(data))
+                        kind, data = None, []
+                    elif line.startswith("event:"):
+                        kind = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data.append(line[5:].lstrip())
+            except requests.exceptions.RequestException as exc:
+                raise ApiUnreachable(f"The review stream broke off: {exc}") from exc
 
 
 def _signed_headers(url: str) -> set[str]:

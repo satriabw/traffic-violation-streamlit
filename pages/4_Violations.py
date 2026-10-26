@@ -2,23 +2,22 @@
 
 Master-detail on one page: a gallery until a violation is opened, then everything the
 API knows about that one. The split mirrors the API's own — the list route never joins
-the metadata blob or the explanation detail, precisely so a page of violations does not
-drag every track's trajectory along with it, and only the detail route pays for them.
+the metadata blob, precisely so a page of violations does not drag every track's
+trajectory along with it, and only the detail route pays for them.
 
-THE EXPLAIN BUTTON IS A POST AND IT DOES NOT WAIT. The route answers 202 and hands the
-work to an actor; the answer arrives on the row tens of seconds later. So the button
-fires and then polls `explanation_status`, which is exactly what the route's docstring says a client
-should do. Nothing here blocks a request thread on a model call.
+THE REVIEW BUTTON STARTS A REVIEW AND THEN FOLLOWS IT. `POST .../review` answers 202 and
+hands the work to an actor; the review then writes its steps to `.../review/events` as
+it goes, a minute or more of them. The page follows that stream and draws each step in
+place, and the finished review is read from `GET .../review`. Nothing here blocks a
+request thread on a model call — the stream is the server reading rows it has stored.
 """
 
 from __future__ import annotations
 
-import time
-
 import requests
 import streamlit as st
 
-from lib import evidence, ui
+from lib import evidence, review, ui
 from lib.api import ApiError, ApiUnreachable
 
 
@@ -83,11 +82,9 @@ if selected:
         eyebrow=f"Violation · {site['name']}",
     )
     st.markdown(
-        ui.labelled_chip("explanation", violation["explanation_status"])
+        ui.labelled_chip("review", violation["explanation_status"], review.chip_label(violation["explanation_status"]))
         + "&nbsp;&nbsp;&nbsp;"
-        + ui.labelled_chip("evidence", violation.get("evidence_status"))
-        + "&nbsp;&nbsp;&nbsp;"
-        + (ui.labelled_chip("severity", violation["severity"]) if violation.get("severity") else ""),
+        + ui.labelled_chip("evidence", violation.get("evidence_status")),
         unsafe_allow_html=True,
     )
     st.caption(
@@ -181,117 +178,82 @@ if selected:
                 "The clip covers the same time span as the violation record."
             )
 
-    # ---- explanation ------------------------------------------------------
+    # ---- review -----------------------------------------------------------
 
     with verdict:
-        st.markdown("#### AI reviewer's note")
-        # Normalised as one document rather than field by field: the prose, both lists
-        # of reasoning, the observations and the plate note are all free text the model
-        # wrote, and any of them can carry an escape that was never decoded.
-        detail = ui.unescape(violation.get("explanation_detail"))
+        st.markdown("#### Evidence review")
         status = violation["explanation_status"]
+        follow = st.session_state.pop("follow_review", None) == violation["id"]
 
-        if status == "explained" and detail:
-            if not detail.get("flag_sustained", True):
+        if status == "pending" or follow:
+            # Running: follow the steps until it finishes, then draw the result.
+            with st.status("The review is running…", expanded=True) as box:
+                progress = review.follow(client, site["id"], violation["id"])
+                failed = progress.broken or (progress.error and progress.review is None)
+                box.update(
+                    label="Lost the review's stream" if progress.broken
+                    else "The review failed" if failed else "Review finished",
+                    state="error" if failed else "complete",
+                    expanded=False,
+                )
+            if progress.broken:
                 st.warning(
-                    "The AI reviewer did **not** confirm this violation — it judged that the "
-                    "evidence does not support it.",
-                    icon=":material/block:",
+                    f"{progress.broken}\n\nThe review goes on without this page; reload to follow it again.",
+                    icon=":material/cloud_off:",
                 )
-            st.markdown(detail["explanation"])
+            else:
+                st.rerun()
 
-            st.markdown(
-                ui.labelled_chip("severity", detail.get("severity"))
-                + "&nbsp;&nbsp;&nbsp;"
-                + ui.labelled_chip("evidence", detail.get("evidence_strength")),
-                unsafe_allow_html=True,
-            )
-            st.caption(
-                "Two separate ratings. Severity is how much risk the behaviour posed to other "
-                "road users; evidence strength is how well the recorded data supports the "
-                "violation. A serious event can have weak evidence, so they are shown "
-                "separately."
-            )
+        try:
+            current = client.get_review(site["id"], violation["id"])
+        except (ApiError, ApiUnreachable) as exc:
+            ui.error(exc)
+            current = None
 
-            if detail.get("severity_basis"):
-                st.markdown("**Why that severity**")
-                for reason in detail["severity_basis"]:
-                    st.markdown(f"- {reason}")
-            if detail.get("evidence_basis"):
-                st.markdown("**What the record establishes**")
-                for reason in detail["evidence_basis"]:
-                    st.markdown(f"- {reason}")
-            if detail.get("observations"):
-                st.markdown("**Observations**")
-                for note in detail["observations"]:
-                    st.markdown(f"- {note}")
-
-            plate = detail.get("license_plate")
-            if plate:
-                st.markdown("**License plate**")
-                st.markdown(ui.chip(plate["recoverability"]), unsafe_allow_html=True)
-                st.caption(plate["reasoning"])
-                st.caption(
-                    "A suggestion for how the plate could be identified — not a plate reading. This "
-                    "system does not read license plates."
-                )
-
-        elif status == "pending":
-            st.info("The AI review is in progress. Use the button below to check for the result.", icon=":material/hourglass_top:")
-        elif status == "failed":
+        if current and current["status"] == "completed" and current.get("review"):
+            steps = None
+            if st.toggle(
+                "Show the steps it took",
+                help=(
+                    "The tracking facts it started from, what it asked the legal source and "
+                    "what came back. Reading them plays the review back, so it takes a few seconds."
+                ),
+            ):
+                try:
+                    steps = review.steps_of(client.base_url, site["id"], violation["id"], violation["updated_at"])
+                except (ApiError, ApiUnreachable) as exc:
+                    ui.error(exc)
+            review.draw(current["review"], steps)
+            if steps is not None:
+                st.divider()
+                review.draw_steps(steps)
+        elif current and current["status"] == "failed":
             st.error(
-                "The last attempt failed and is not retried automatically. Press the button "
-                "below to try again.",
+                "The last review failed and is not retried automatically. Press the button "
+                "below to try again."
+                + (f"\n\n{current['error']}" if current.get("error") else ""),
                 icon=":material/warning:",
             )
+        elif current and current["status"] == "running":
+            st.info("The review is still running.", icon=":material/hourglass_top:")
         else:
-            ui.empty("Not reviewed yet.", "This violation has not been sent for AI review.")
+            ui.empty("Not reviewed yet.", "This violation has not been sent for review.")
 
-        label = {
-            "detected": "Request AI review",
-            "failed": "Try AI review again",
-            "explained": "Re-check status",
-            "pending": "Check for the result",
-        }[status]
-
-        if st.button(label, type="primary", width="stretch"):
-            try:
-                client.explain(site["id"], violation["id"])
-            except (ApiError, ApiUnreachable) as exc:
-                ui.error(exc)
-            else:
-                # 202 means work was accepted; 200 means there was nothing to do. The
-                # body is the violation either way and the status says which, so the
-                # poll below is the same code path for both.
-                box = st.empty()
-                deadline = time.time() + 180
-                while time.time() < deadline:
-                    try:
-                        current = client.get_violation(site["id"], violation["id"])
-                    except (ApiError, ApiUnreachable) as exc:
-                        ui.error(exc)
-                        break
-                    if current["explanation_status"] != "pending":
-                        box.success(f"Finished: {current['explanation_status']}.", icon=":material/check_circle:")
-                        time.sleep(0.6)
-                        st.rerun()
-                    box.info(
-                        f"Reviewing… {int(deadline - time.time())}s left of automatic checking. "
-                        "The AI review can take a minute or two.",
-                        icon=":material/hourglass_top:",
-                    )
-                    time.sleep(2)
+        if status in ("detected", "failed"):
+            label = "Start the review" if status == "detected" else "Review again"
+            if st.button(label, type="primary", width="stretch"):
+                try:
+                    client.start_review(site["id"], violation["id"])
+                except (ApiError, ApiUnreachable) as exc:
+                    ui.error(exc)
                 else:
-                    box.warning(
-                        "Still in progress after three minutes. The result is not lost — it will appear "
-                        "here when ready, so check back later.",
-                        icon=":material/hourglass_bottom:",
-                    )
-
-        st.caption(
-            "Safe to press more than once: a violation is only sent for review once, and a "
-            "finished review is simply shown again."
-        )
+                    # 202 started one, 200 found one running or done; following covers both.
+                    st.session_state["follow_review"] = violation["id"]
+                    st.rerun()
+            st.caption(
+                "Safe to press more than once: a violation is only reviewed once at a time, "
+                "and a finished review is simply shown again."
+            )
 
     # ---- trajectories -----------------------------------------------------
 
@@ -410,7 +372,7 @@ counts: dict[str, int] = {}
 for item in page["items"]:
     counts[item["explanation_status"]] = counts.get(item["explanation_status"], 0) + 1
 st.markdown(
-    " ".join(ui.chip(status, f"{status} {n}") for status, n in counts.items()),
+    " ".join(review.review_chip(status, n) for status, n in counts.items()),
     unsafe_allow_html=True,
 )
 st.caption(f"Showing {page['offset'] + 1}–{page['offset'] + len(page['items'])} of {page['total']}")
@@ -436,10 +398,9 @@ for i, item in enumerate(page["items"]):
 
             st.markdown(f"**{item['type'].replace('_', ' ').capitalize()}**")
             st.markdown(
-                ui.chip(item["explanation_status"])
+                review.review_chip(item["explanation_status"])
                 + "&nbsp;"
-                + ui.chip(item.get("evidence_status"))
-                + ("&nbsp;" + ui.chip(item["severity"]) if item.get("severity") else ""),
+                + ui.chip(item.get("evidence_status")),
                 unsafe_allow_html=True,
             )
             st.caption(
@@ -449,12 +410,6 @@ for i, item in enumerate(page["items"]):
                     item["detected_at"],
                 )
             )
-            if item.get("explanation"):
-                # Before truncating, not after: an escape straddling the cut would
-                # otherwise be sliced into nonsense that no longer decodes.
-                text = ui.unescape(item["explanation"])
-                st.caption(text[:160] + ("…" if len(text) > 160 else ""))
-
             if st.button("Open", key=f"open_{item['id']}", width="stretch"):
                 st.session_state["violation_id"] = item["id"]
                 st.rerun()

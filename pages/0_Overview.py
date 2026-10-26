@@ -85,10 +85,10 @@ tiles[0].metric("Sites", len(sites), help=f"{streams} with a live feed", border=
 tiles[1].metric("Violations", f"{len(violations):,}", border=True)
 tiles[2].metric(
     "Awaiting review", int(status.get("detected", 0)),
-    help="Detected, not yet sent for AI review", border=True,
+    help="Detected, not yet sent for the evidence review", border=True,
 )
 tiles[3].metric(
-    "AI reviewed", int(status.get("explained", 0)),
+    "Reviewed", int(status.get("explained", 0)),
     help=f"{int(status.get('pending', 0))} in progress, {int(status.get('failed', 0))} failed",
     border=True,
 )
@@ -177,7 +177,7 @@ for site in sites:
             "Source status": source.get("status") or "—",
             "Violations": len(mine),
             "Awaiting review": int(counts.get("detected", 0)),
-            "AI reviewed": int(counts.get("explained", 0)),
+            "Reviewed": int(counts.get("explained", 0)),
             "Last detected": mine["detected_at"].max().tz_convert(ui.LOCAL_TZ).tz_localize(None) if len(mine) else None,
             "Created": pd.to_datetime(site["created_at"]).tz_convert(ui.LOCAL_TZ).tz_localize(None),
         }
