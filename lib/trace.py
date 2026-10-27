@@ -89,7 +89,7 @@ def process(events: list[dict]) -> str:
 
     def flush():
         if thinking:
-            out.append(quote_block("💭 " + "".join(thinking)))
+            out.append(quote_block("Thinking... " + "".join(thinking)))
             thinking.clear()
 
     for event in events:
@@ -163,7 +163,7 @@ def points(review: dict, tracking: list[dict], events: list[dict]) -> str:
         lines = [f"**{title}** {text}"]
         for fid in item.get("tracking_facts") or []:
             f = facts.get(fid)
-            lines.append(f"- `{fid}` {f['group']}: {f['statement']}" if f else f"- `{fid}` ❌ no such fact")
+            lines.append(f"- `{fid}` {f['group']}: {f['statement']}" if f else f"- `{fid}` no such fact")
         if item.get("picture"):
             lines.append("- picture")
         source = item.get("source") or {}
@@ -174,8 +174,8 @@ def points(review: dict, tracking: list[dict], events: list[dict]) -> str:
             if "quote" in item:
                 quote = item["quote"]
                 found = bool(quote) and norm(quote) in norm(answer)
-                lines.append(f"- legal {name}: " + (f"“{quote}” {'✅' if found else '❌ not in the answer'}"
-                                                     if quote else "❌ no quote"))
+                lines.append(f"- legal {name}: " + (f"“{quote}” {'found in the answer' if found else 'not in the answer'}"
+                                                     if quote else "no quote"))
             else:
                 lines.append(f"- legal {name}")
             named = articles(answer)
@@ -184,17 +184,17 @@ def points(review: dict, tracking: list[dict], events: list[dict]) -> str:
             named = {article_key(a) for a in articles(answer)}
             if item["article"]:
                 ok = bool(articles(item["article"])) and all(article_key(a) in named for a in articles(item["article"]))
-                lines.append(f"- article: “{item['article']}” {'✅ named in ' + name if ok else '❌ not in that answer'}")
+                lines.append(f"- article: “{item['article']}” {'named in ' + name if ok else 'not in that answer'}")
             else:
-                lines.append("- article: none given" + (" ❌ but the answer names " + ", ".join(articles(answer))
+                lines.append("- article: none given" + (", but the answer names " + ", ".join(articles(answer))
                                                          if key in answers and named else ""))
         if "source_as_cited" in item:
             found = key in answers and norm(item["source_as_cited"]) in norm(answer)
-            lines.append(f"- source as cited: “{item['source_as_cited']}” {'✅' if found else '❌ not in the answer'}")
+            lines.append(f"- source as cited: “{item['source_as_cited']}” {'found in the answer' if found else 'not in the answer'}")
             if key in answers:
                 lines.append(f"- documents behind {name}: " + ", ".join(documents(answers[key].get("references"))))
         if len(lines) == 1:
-            lines.append("- ❌ rests on nothing")
+            lines.append("- rests on nothing")
         blocks.append("\n".join(lines))
 
     if review.get("flag_check"):

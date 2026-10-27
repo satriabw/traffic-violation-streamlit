@@ -96,10 +96,10 @@ class Progress:
             self._line(self.step + "…")
         elif kind == "thinking":
             self.thinking += data.get("text", "")
-            if self.timeline and self.timeline[-1].startswith("💭"):
+            if self.timeline and self.timeline[-1].startswith("Thinking..."):
                 self.timeline[-1] += data.get("text", "")
             else:
-                self.timeline.append("💭 " + data.get("text", ""))
+                self.timeline.append("Thinking... " + data.get("text", ""))
         elif kind == "text":
             self.text += data.get("text", "")
         elif kind == "questions":
