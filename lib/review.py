@@ -8,6 +8,11 @@ by id and the sources by tool and turn, so the steps are what make those citatio
 readable; but a finished review plays its steps back at up to 1.5 s apart, so they are
 fetched only when asked for, never on every page load.
 
+THE CLERK SEES THE ADVICE, NEVER WHAT IT RESTS ON. The clerk card is the recommendation
+with its basis points, the summary, the advice for the driver and the site, and each rule
+with its article. Tracking facts, sources, quotes and documents are in the debug view
+only (lib/trace.py), which is for the developers.
+
 Nothing here talks to the API except through the `Api` it is handed.
 """
 
@@ -20,7 +25,7 @@ from typing import Any, Iterable
 
 import streamlit as st
 
-from lib import ui
+from lib import trace, ui
 from lib.api import Api, ApiError, ApiUnreachable
 
 FLAG = {
@@ -29,12 +34,6 @@ FLAG = {
     "unclear": "Whether the person was on foot cannot be told from the evidence",
 }
 AUDIENCE = {"legal": "law", "driver": "driver", "site": "site"}
-GROUP = {
-    "exact": "Measured",
-    "relative": "Relative",
-    "estimate": "Estimated",
-    "check": "Checks for a false flag",
-}
 # One redraw per this many seconds while following: a review writes hundreds of small
 # pieces, and redrawing the panel on each one makes the browser the bottleneck.
 REDRAW_SECONDS = 0.25
@@ -49,12 +48,20 @@ REDRAW_SECONDS = 0.25
 class Progress:
     """Everything the event stream has said so far, folded into what a page draws."""
 
+    # Every event as it came, for the debug view, which reads the run in order.
+    events: list[dict] = field(default_factory=list)
     step: str = ""
-    steps: list[tuple[float, str]] = field(default_factory=list)
+    # The lines the person watching reads as the agent's progress, in order.
+    timeline: list[str] = field(default_factory=list)
     facts: dict[str, dict] = field(default_factory=dict)
     questions: dict[int, dict] = field(default_factory=dict)
     exchanges: list[dict] = field(default_factory=list)
     thinking: str = ""
+    # Text the model wrote outside a tool call.
+    text: str = ""
+    # Questions put to a paced source so far, and how many it allows.
+    budget: dict | None = None
+    turns: list[dict] = field(default_factory=list)
     writing: dict[tuple[str, int], str] = field(default_factory=dict)
     review: dict | None = None
     error: str | None = None
@@ -70,48 +77,75 @@ class Progress:
         if kind == "replay":
             self.replay = True
             return
+        self.events.append(event)
         data = event.get("data") or {}
         self.elapsed = event.get("elapsed_seconds", self.elapsed)
         if kind == "manifest":
             self.model = data.get("model")
+        elif kind == "status":
+            # reading, asking, waiting, fallback: where the run is, in a line of its own.
+            self._line(data.get("detail", ""))
         elif kind == "facts":
             self.facts = {f["id"]: f for f in data.get("facts", [])}
+            groups: dict[str, int] = {}
+            for fact in data.get("facts", []):
+                groups[fact["group"]] = groups.get(fact["group"], 0) + 1
+            self._line("The tracking gives " + ", ".join(f"{n} {g}" for g, n in groups.items()) + " facts")
         elif kind == "step":
             self.step = data.get("text", "")
-            self.steps.append((self.elapsed, self.step))
-            self.thinking = ""
+            self._line(self.step + "…")
         elif kind == "thinking":
             self.thinking += data.get("text", "")
+            if self.timeline and self.timeline[-1].startswith("💭"):
+                self.timeline[-1] += data.get("text", "")
+            else:
+                self.timeline.append("💭 " + data.get("text", ""))
+        elif kind == "text":
+            self.text += data.get("text", "")
         elif kind == "questions":
-            self.questions = {q["id"]: q for q in data.get("questions", [])}
+            questions = data.get("questions", [])
+            still = sum(q["status"] == "open" for q in questions)
+            if not self.questions:
+                self._line(f"Unsure about {len(questions)} things: " + "; ".join(q["question"] for q in questions))
+            else:
+                settled = [q["question"] for q in questions if q["status"] != "open"]
+                self._line(f"{still} still open" + (f"; settled: {settled[-1]}" if settled else ""))
+            self.questions = {q["id"]: q for q in questions}
         elif kind == "question":
             self.exchanges.append({**data, "answer": None})
+            self._line(f"Asking the legal source (turn {data.get('turn')}): {data.get('question', '')}")
         elif kind == "answer":
             for exchange in reversed(self.exchanges):
                 if exchange.get("tool") == data.get("tool") and exchange.get("turn") == data.get("turn"):
                     exchange["answer"] = data
                     break
+            # Which documents it rests on is for the developers: those are in the debug view only.
+            self._line(f"Turn {data.get('turn')} failed: {data['error']}" if data.get("error")
+                       else f"The legal source answered in {data.get('seconds', 0):.0f} s")
+        elif kind == "budget":
+            self.budget = data
         elif kind == "refused":
-            self.steps.append((self.elapsed, f"Refused {data.get('tool')}: {data.get('reason')}"))
+            # Only the legal source's own checks hold a question back.
+            self._line(f"Not sent to {data.get('tool')}: {data.get('reason', '')} — “{data.get('question', '')}”")
+        elif kind == "turn":
+            self.turns.append(data)
         elif kind == "writing":
-            key = (data.get("field", ""), data.get("index", 0))
-            self.writing[key] = self.writing.get(key, "") + data.get("text", "")
+            # Where a rule was cited from is what it rests on: the debug view's, not the watcher's.
+            if data.get("field") != "source_as_cited":
+                key = (data.get("field", ""), data.get("index", 0))
+                self.writing[key] = self.writing.get(key, "") + data.get("text", "")
         elif kind == "review":
             self.review = data.get("review")
         elif kind == "done":
+            # The model asked for; one a turn fell back to is in that turn's own model.
             self.done = data
             self.model = data.get("model") or self.model
         elif kind == "error":
             self.error = data.get("message")
 
-    def answer_for(self, source: dict | None) -> dict | None:
-        """The exchange a review's `source: {tool, turn}` points at."""
-        if not source:
-            return None
-        for exchange in self.exchanges:
-            if exchange.get("tool") == source.get("tool") and exchange.get("turn") == source.get("turn"):
-                return exchange
-        return None
+    def _line(self, text: str) -> None:
+        if text:
+            self.timeline.append(text)
 
 
 def collect(events: Iterable[dict], stop_after: str | None = None) -> Progress:
@@ -135,120 +169,69 @@ def steps_of(base_url: str, site_id: str, violation_id: str, updated_at: str) ->
 # ---------------------------------------------------------------------------
 
 
-def _facts_line(ids: list[str], progress: Progress | None) -> str:
-    if not ids:
-        return ""
-    if progress is None or not progress.facts:
-        return "Tracking facts: " + ", ".join(f"`{i}`" for i in ids)
-    named = [progress.facts[i]["statement"] if i in progress.facts else f"`{i}`" for i in ids]
-    return "Tracking facts: " + "; ".join(named)
-
-
-def _basis(points: list[dict], progress: Progress | None) -> None:
-    for point in points:
-        st.markdown(f"- {point['point']}")
-        notes = []
-        if point.get("tracking_facts"):
-            notes.append(_facts_line(point["tracking_facts"], progress))
-        if point.get("picture"):
-            notes.append("seen in the key frame")
-        source = point.get("source")
-        if source:
-            notes.append(f"{source['tool'].replace('_', ' ')}, turn {source['turn']}")
-        if notes:
-            st.caption("  \n".join(notes))
-        if point.get("quote"):
-            st.markdown(f"> {point['quote']}")
-
-
-def _recommendation(item: dict, progress: Progress | None) -> None:
-    st.markdown(item["text"])
-    if item.get("justification"):
-        with st.expander("What this rests on"):
-            _basis(item["justification"], progress)
-
-
-def draw(review: dict, progress: Progress | None = None) -> None:
-    """A completed review. `progress` is optional: given the steps, fact ids and source
-    turns are written out in full; without them they are shown as ids."""
+def draw(review: dict) -> None:
+    """A completed review, as the clerk reads it: the advice and nothing it rests on."""
     review = ui.unescape(review)
     flag = review.get("flag_check") or {}
     status = flag.get("status")
-    note = FLAG.get(status, status or "")
-    if status == "riding":
-        st.warning(f"**{note}.**", icon=":material/block:")
-    elif status == "unclear":
-        st.info(f"**{note}.**", icon=":material/help:")
-    else:
-        st.success(f"**{note}.**", icon=":material/check_circle:")
-    if flag.get("seen"):
-        st.markdown(flag["seen"])
-    if flag.get("tracking_facts") or flag.get("picture"):
-        st.caption(
-            "  \n".join(
-                part
-                for part in (
-                    _facts_line(flag.get("tracking_facts") or [], progress),
-                    "seen in the key frame" if flag.get("picture") else "",
-                )
-                if part
-            )
+    # On foot is the ordinary case and needs no banner; the other two change how the
+    # whole review reads, so they come first.
+    if status in ("riding", "unclear"):
+        (st.warning if status == "riding" else st.info)(
+            f"**{FLAG[status]}.** {flag.get('seen', '')}",
+            icon=":material/block:" if status == "riding" else ":material/help:",
         )
-
-    st.markdown("**Summary**")
-    st.markdown(review.get("summary", ""))
 
     clerk = review.get("clerk_recommendation")
     if clerk:
-        st.markdown("**Recommendation to the clerk**")
-        _recommendation(clerk, progress)
+        with st.container(border=True):
+            st.markdown("##### Recommended next step")
+            st.markdown(f"**{clerk['text']}**")
+            points = clerk.get("justification") or []
+            if points:
+                st.markdown("**Basis**")
+                st.markdown("\n".join(f"{n}. {point['point']}" for n, point in enumerate(points, 1)))
+            st.caption("Guidance only: the clerk decides.")
+
+    if review.get("summary"):
+        st.markdown(review["summary"])
 
     for title, key in (("For the driver", "driver_recommendations"), ("For the site", "site_recommendations")):
         items = review.get(key) or []
         if items:
             st.markdown(f"**{title}**")
-            for item in items:
-                with st.container(border=True):
-                    _recommendation(item, progress)
+            st.markdown("\n".join(f"- {item['text']}" for item in items))
 
     legal = review.get("legal_candidates") or []
     if legal:
         st.markdown("**Rules that may apply**")
-        for candidate in legal:
-            article = f" — {candidate['article']}" if candidate.get("article") else ""
-            st.markdown(f"- **{candidate['rule']}**{article}")
-            cited = candidate.get("source_as_cited")
-            if cited:
-                st.caption(cited)
-        st.caption("Candidates the legal source pointed to, not a legal finding.")
+        st.markdown(
+            "\n".join(
+                f"- **{candidate.get('article') or 'article not given by the legal source'}** · {candidate['rule']}"
+                for candidate in legal
+            )
+        )
+        st.caption("Candidates as the legal source cited them, not a legal finding: the clerk decides.")
 
     unsure = review.get("still_unsure") or []
     if unsure:
         st.markdown("**Still unsure**")
-        for line in unsure:
-            st.markdown(f"- {line}")
-
-    final = review.get("open_questions_final") or []
-    if final and progress is not None and progress.questions:
-        with st.expander("The questions it set itself"):
-            for item in final:
-                question = progress.questions.get(item["id"], {})
-                st.markdown(
-                    ui.chip(item["status"]) + "&nbsp;&nbsp;" + html.escape(question.get("question", f"question {item['id']}")),
-                    unsafe_allow_html=True,
-                )
+        st.markdown("\n".join(f"- {line}" for line in unsure))
 
 
-def draw_steps(progress: Progress, live: bool = False) -> None:
-    """The steps a review took: where it is now, what it asked, what it is writing."""
-    if live and progress.step:
-        st.markdown(f"**{progress.step}…**")
-        st.caption(f"{progress.elapsed:.0f}s in")
-    if live and progress.thinking:
-        st.caption(progress.thinking[-400:])
+def draw_steps(progress: Progress) -> None:
+    """A running review: what it has done so far, and what it is writing."""
+    st.caption(
+        f"{progress.elapsed:.0f}s in"
+        + (f" · legal source {progress.budget['used']} of {progress.budget['limit']} questions"
+           if progress.budget and progress.budget.get("limit") else "")
+    )
+    if progress.timeline:
+        st.markdown("\n".join(f"- {html.escape(line[-600:])}" for line in progress.timeline[-12:]),
+                    unsafe_allow_html=True)
 
     if progress.questions:
-        st.markdown("**Open questions**")
+        st.markdown("**What it is unsure about**")
         for question in progress.questions.values():
             goal = AUDIENCE.get(question.get("goal"), question.get("goal", ""))
             st.markdown(
@@ -257,54 +240,55 @@ def draw_steps(progress: Progress, live: bool = False) -> None:
                 unsafe_allow_html=True,
             )
 
-    if progress.exchanges:
-        st.markdown("**Asked the legal source**")
-        for exchange in progress.exchanges:
-            answer = exchange.get("answer")
-            title = f"Turn {exchange.get('turn')} · {exchange.get('question', '')[:90]}"
-            with st.expander(title, expanded=live and answer is None):
-                st.markdown(f"*{exchange.get('question', '')}*")
-                if answer is None:
-                    st.caption("Waiting for the answer…")
-                elif answer.get("error"):
-                    st.error(answer["error"], icon=":material/cloud_off:")
-                else:
-                    st.markdown(ui.unescape(answer.get("answer", "")))
-                    if answer.get("references"):
-                        st.caption("References: " + "; ".join(answer["references"]))
-                    if answer.get("seconds") is not None:
-                        st.caption(f"Answered in {answer['seconds']:.0f}s")
+    if progress.text:
+        st.markdown(ui.unescape(progress.text))
 
-    if live and progress.writing and progress.review is None:
+    if progress.writing and progress.review is None:
         st.markdown("**Writing the review**")
         st.markdown("\n\n".join(ui.unescape(text) for text in progress.writing.values()))
 
-    if progress.facts and not live:
-        with st.expander(f"Tracking facts ({len(progress.facts)})"):
-            by_group: dict[str, list[dict]] = {}
-            for fact in progress.facts.values():
-                by_group.setdefault(fact.get("group", ""), []).append(fact)
-            for group, facts in by_group.items():
-                st.markdown(f"**{GROUP.get(group, group)}**")
-                for fact in facts:
-                    st.markdown(f"- `{fact['id']}` {fact['statement']}")
 
-    if progress.steps and not live:
-        with st.expander("Every step"):
-            for elapsed, text in progress.steps:
-                st.markdown(f"`{elapsed:6.1f}s` {html.escape(text)}", unsafe_allow_html=True)
+def totals(progress: Progress) -> str:
+    """The run's totals, one line: model calls, legal turns, cost, tokens."""
+    done = progress.done or {}
+    usage = done.get("tokens") or {}
+    model = done.get("model") or progress.model or ""
+    fallbacks = sorted({t["model"] for t in progress.turns if t.get("model") and t["model"] != model})
+    parts = [
+        model + (f" (fell back to {', '.join(fallbacks)})" if fallbacks else ""),
+        f"{done.get('model_calls', 0)} model calls",
+        f"{done.get('rag_turns', 0)} legal turns",
+        f"${done['cost_usd']}" if done.get("cost_usd") is not None else "",
+        f"{usage.get('input', 0) + usage.get('output', 0):,} tokens" if usage else "",
+        f"{progress.elapsed:.0f}s",
+    ]
+    return " · ".join(p for p in parts if p)
 
+
+def debug(progress: Progress, name: str) -> None:
+    """The prototype's debug view: citations by legal turn, what each point rests on, the
+    process, and all three as a Markdown file. For the developers, never the clerk."""
+    events = progress.events
+    review = trace.review_of(events)
+    tracking = trace.facts_of(events)
+    st.markdown("**Debug** · for developers, not the clerk")
     if progress.done:
-        calls = progress.done.get("tool_calls") or {}
-        usage = progress.done.get("usage") or {}
-        parts = [progress.done.get("model") or "", f"{progress.done.get('model_calls', 0)} model turns"]
-        if calls:
-            parts.append(", ".join(f"{n}× {tool.replace('_', ' ')}" for tool, n in calls.items()))
-        tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
-        if tokens:
-            parts.append(f"{tokens:,} tokens")
-        parts.append(f"{progress.elapsed:.0f}s")
-        st.caption(" · ".join(p for p in parts if p))
+        st.caption(totals(progress))
+        for finding in progress.done.get("findings") or []:
+            st.caption(f"finding: {finding}")
+    with st.expander("Citations: articles per legal turn", expanded=True):
+        st.markdown(trace.articles_table(review, events))
+    if review and tracking is not None:
+        with st.expander("What each point rests on"):
+            st.markdown(trace.points(review, tracking, events))
+    with st.expander("Process: thinking, open questions, legal turns"):
+        st.markdown(trace.process(events))
+    st.download_button(
+        "Download debug trace (Markdown)",
+        trace.report(name, events),
+        file_name=f"{name}-debug.md",
+        mime="text/markdown",
+    )
 
 
 def follow(client: Api, site_id: str, violation_id: str) -> Progress:
@@ -322,7 +306,7 @@ def follow(client: Api, site_id: str, violation_id: str) -> Progress:
             progress.add(event)
             if time.monotonic() - drawn >= REDRAW_SECONDS or event.get("type") in ("review", "done", "error"):
                 with panel.container():
-                    draw_steps(progress, live=True)
+                    draw_steps(progress)
                 drawn = time.monotonic()
     except (ApiError, ApiUnreachable) as exc:
         progress.broken = str(exc)

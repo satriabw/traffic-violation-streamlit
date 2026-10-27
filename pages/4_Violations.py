@@ -218,23 +218,22 @@ if selected:
             ui.error(exc)
             current = None
 
+        steps = None
+        if current and current["status"] in ("completed", "failed") and st.toggle(
+            "Show the debug view",
+            help=(
+                "For developers, not the clerk: the articles each legal turn named, what every "
+                "point of the review rests on, and the run step by step. Reading them plays the "
+                "review back, so it takes a few seconds."
+            ),
+        ):
+            try:
+                steps = review.steps_of(client.base_url, site["id"], violation["id"], violation["updated_at"])
+            except (ApiError, ApiUnreachable) as exc:
+                ui.error(exc)
+
         if current and current["status"] == "completed" and current.get("review"):
-            steps = None
-            if st.toggle(
-                "Show the steps it took",
-                help=(
-                    "The tracking facts it started from, what it asked the legal source and "
-                    "what came back. Reading them plays the review back, so it takes a few seconds."
-                ),
-            ):
-                try:
-                    steps = review.steps_of(client.base_url, site["id"], violation["id"], violation["updated_at"])
-                except (ApiError, ApiUnreachable) as exc:
-                    ui.error(exc)
-            review.draw(current["review"], steps)
-            if steps is not None:
-                st.divider()
-                review.draw_steps(steps)
+            review.draw(current["review"])
         elif current and current["status"] == "failed":
             st.error(
                 "The last review failed and is not retried automatically. Press the button "
@@ -262,6 +261,13 @@ if selected:
                 "Safe to press more than once: a violation is only reviewed once at a time, "
                 "and a finished review is simply shown again."
             )
+
+    # ---- debug view ---------------------------------------------------------
+
+    # Full width: its tables have five columns, too many for the review's column.
+    if steps is not None:
+        st.divider()
+        review.debug(steps, violation["id"][:8])
 
     # ---- trajectories -----------------------------------------------------
 
