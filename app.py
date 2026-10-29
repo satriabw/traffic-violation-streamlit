@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from lib import ui
+from lib import chat, ui
 
 st.set_page_config(
     page_title="Traffic Violation Console",
@@ -26,6 +26,8 @@ navigation = st.navigation(
             st.Page("pages/0_Overview.py", title="Overview", icon=":material/dashboard:", default=True),
             st.Page("pages/2_Site_View.py", title="Site view", icon=":material/videocam:"),
             st.Page("pages/4_Violations.py", title="Violations", icon=":material/report:"),
+            # The chat about a violation: listed only with CHAT_ENABLED.
+            *([st.Page("pages/6_Chat.py", title="Chat", icon=":material/forum:")] if chat.ENABLED else []),
         ],
         "Operations": [
             st.Page("pages/3_Detection.py", title="Detection", icon=":material/play_circle:"),

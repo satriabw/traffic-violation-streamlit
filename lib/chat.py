@@ -51,8 +51,9 @@ def _turn_steps(events: list[dict], turn: dict) -> review.Progress:
     return review.collect(e for e in events if turn["first_event"] <= e["sequence"] <= turn["last_event"])
 
 
-def draw(client: Api, site_id: str, violation_id: str) -> None:
-    st.markdown("#### Ask about this violation")
+def draw(client: Api, site_id: str, violation_id: str, heading: bool = True) -> None:
+    if heading:
+        st.markdown("#### Ask about this violation")
     st.caption("For the team, not the clerk: answers give numbers and name the tools and road users they rest on. "
                "Five questions per chat; a new chat starts from the violation again.")
     try:

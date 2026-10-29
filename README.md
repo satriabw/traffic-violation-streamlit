@@ -33,9 +33,9 @@ red when `/health` stops answering. Restart the server after changing anything u
 
 ## The chat (behind a flag)
 
-With `CHAT_ENABLED=1` here and on site-service, the Violations page shows **Ask about this violation** under the
-review: pick a chat or start a new one, ask up to five questions, follow each answer as it is written, and unfold the
-steps behind any reply. `GET/POST .../violations/{id}/chats`, `GET/DELETE .../chats/{chat}`,
+With `CHAT_ENABLED=1` here and on site-service, the **Chat** page (under Monitoring) asks about one violation: pick
+the violation, see its key frame, pick a chat or start a new one, ask up to five questions, follow each answer as it is
+written, and unfold the steps behind any reply. The Violations page links a violation to it. `GET/POST .../violations/{id}/chats`, `GET/DELETE .../chats/{chat}`,
 `POST .../chats/{chat}/messages`, `GET .../chats/{chat}/events`.
 
 ## The pages

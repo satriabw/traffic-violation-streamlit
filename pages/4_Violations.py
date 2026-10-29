@@ -30,20 +30,6 @@ if site is None:
     st.stop()
 
 
-@st.cache_data(show_spinner=False, ttl=900, max_entries=64)
-def fetch_bytes(cache_key: str, _url: str) -> bytes:
-    """Evidence objects, cached by their immutable key rather than their URL.
-
-    The URL is a presigned link minted fresh on every read, so caching on it would miss
-    every time. The key underneath it is stable for the life of the object — the worker
-    rewrites both keys on every transition, so a key never outlives what it points at.
-    The leading underscore keeps the volatile URL out of the hash.
-    """
-    response = requests.get(_url, timeout=90)
-    response.raise_for_status()
-    return response.content
-
-
 def source_facts(site_id: str, source_id: str | None) -> tuple[float | None, tuple[int, int] | None]:
     """fps and resolution for the source this violation was found in."""
     source = ui.source_of(client, site_id, source_id)
@@ -159,7 +145,7 @@ if selected:
 
         if violation.get("thumbnail_url"):
             try:
-                raw = fetch_bytes(violation["thumbnail_key"], client.absolute(violation["thumbnail_url"]))
+                raw = ui.fetch_bytes(violation["thumbnail_key"], client.absolute(violation["thumbnail_url"]))
             except requests.RequestException as exc:
                 st.error(f"Could not load the image: {exc}", icon=":material/broken_image:")
             else:
@@ -273,7 +259,9 @@ if selected:
 
     if chat.ENABLED:
         st.divider()
-        chat.draw(client, site["id"], violation["id"])
+        if st.button("Ask about this violation in the chat", icon=":material/forum:"):
+            st.session_state["chat_violation_id"] = violation["id"]
+            st.switch_page("pages/6_Chat.py")
 
     # ---- trajectories -----------------------------------------------------
 
@@ -420,7 +408,7 @@ for i, item in enumerate(page["items"]):
             if item.get("thumbnail_url"):
                 try:
                     st.image(
-                        fetch_bytes(item["thumbnail_key"], client.absolute(item["thumbnail_url"])),
+                        ui.fetch_bytes(item["thumbnail_key"], client.absolute(item["thumbnail_url"])),
                         width="stretch",
                     )
                 except requests.RequestException:
