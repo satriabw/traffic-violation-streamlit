@@ -23,9 +23,12 @@ def follow(client: Api, site_id: str, violation_id: str, chat_id: str, after: in
     try:
         for event in client.chat_events(site_id, violation_id, chat_id, after=after):
             progress.add(event)
-            if time.monotonic() - drawn >= REDRAW_SECONDS or event.get("type") in ("reply", "done", "error"):
+            if time.monotonic() - drawn >= REDRAW_SECONDS or event.get("type") in ("question", "reply", "done", "error"):
                 with panel.container():
                     _steps(progress)
+                    if progress.exchanges and progress.exchanges[-1]["answer"] is None:
+                        # Nothing arrives while the legal website works on a question; say so, or the page looks stuck.
+                        st.caption("Waiting for the legal source; it usually takes 25 to 35 s.")
                     if progress.text:
                         st.markdown(progress.text)
                 drawn = time.monotonic()
