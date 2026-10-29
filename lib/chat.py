@@ -3,7 +3,6 @@ folded underneath. Off unless CHAT_ENABLED is set here, and the backend's chat r
 
 import html
 import os
-import time
 
 import streamlit as st
 
@@ -11,31 +10,36 @@ from lib import review
 from lib.api import Api, ApiError, ApiUnreachable
 
 ENABLED = os.environ.get("CHAT_ENABLED", "").lower() in ("1", "true", "yes")
-REDRAW_SECONDS = 0.4
+POLL_SECONDS = 1.5
 NEW = "new"
 
 
-def follow(client: Api, site_id: str, violation_id: str, chat_id: str, after: int) -> review.Progress:
-    """Draw the question being answered as its steps arrive: the steps so far, then the reply as it is written."""
-    panel = st.empty()
-    progress = review.Progress()
-    drawn = 0.0
-    try:
-        for event in client.chat_events(site_id, violation_id, chat_id, after=after):
-            progress.add(event)
-            if time.monotonic() - drawn >= REDRAW_SECONDS or event.get("type") in ("question", "reply", "done", "error"):
-                with panel.container():
-                    _steps(progress)
-                    if progress.exchanges and progress.exchanges[-1]["answer"] is None:
-                        # Nothing arrives while the legal website works on a question; say so, or the page looks stuck.
-                        st.caption("Waiting for the legal source; it usually takes 25 to 35 s.")
-                    if progress.text:
-                        st.markdown(progress.text)
-                drawn = time.monotonic()
-    except (ApiError, ApiUnreachable) as exc:
-        progress.broken = str(exc)
-    panel.empty()
-    return progress
+def _answering(client: Api, site_id: str, violation_id: str, chat_id: str, after: int) -> None:
+    """The question being answered, redrawn every POLL_SECONDS from what is stored so far: the steps, a word when
+    it waits on the legal source, and the reply as it is written. Once the chat stops answering, the whole page is
+    drawn again with the reply in its place. Polling, not a held stream, so a reconnect or a click never strands it."""
+
+    @st.fragment(run_every=POLL_SECONDS)
+    def poll() -> None:
+        try:
+            status = client.get_chat(site_id, violation_id, chat_id)["status"]
+            events = [e for e in client.chat_events(site_id, violation_id, chat_id, after=after, paced=False)
+                      if e.get("type") != "replay"]
+        except (ApiError, ApiUnreachable) as exc:
+            st.warning(f"{exc}\n\nStill trying.", icon=":material/cloud_off:")
+            return
+        if status != "answering":
+            st.rerun(scope="app")
+        progress = review.collect(events)
+        with st.status("Answering…", expanded=True):
+            _steps(progress)
+            if progress.exchanges and progress.exchanges[-1]["answer"] is None:
+                # Nothing arrives while the legal website works on a question; say so, or the page looks stuck.
+                st.caption("Waiting for the legal source; it usually takes 25 to 35 s.")
+            if progress.text:
+                st.markdown(progress.text)
+
+    poll()
 
 
 @st.cache_data(show_spinner=False, ttl=3600, max_entries=32)
@@ -115,16 +119,10 @@ def draw(client: Api, site_id: str, violation_id: str, heading: bool = True) -> 
                         _steps(steps)
                         st.caption(review.totals(steps))
 
-    following = st.session_state.pop(f"follow_{violation_id}", None)
-    if chat and (chat["status"] == "answering" or following):
+    if chat and chat["status"] == "answering":
         with st.chat_message("assistant"):
-            with st.status("Answering…", expanded=True) as box:
-                progress = follow(client, site_id, violation_id, chat["id"],
-                                  after=chat["turns"][-1]["first_event"] if chat["turns"] else -1)
-                box.update(label="Lost the stream; reload to follow it again" if progress.broken else "Answered",
-                           state="error" if progress.broken or progress.error else "complete", expanded=False)
-        if not progress.broken:
-            st.rerun()
+            _answering(client, site_id, violation_id, chat["id"],
+                       after=chat["turns"][-1]["first_event"] if chat["turns"] else -1)
 
     full = chat is not None and chat["questions"] >= 5
     busy = chat is not None and chat["status"] == "answering"
@@ -141,5 +139,4 @@ def draw(client: Api, site_id: str, violation_id: str, heading: bool = True) -> 
         except (ApiError, ApiUnreachable) as exc:
             st.error(str(exc))
             return
-        st.session_state[f"follow_{violation_id}"] = True
         st.rerun()
