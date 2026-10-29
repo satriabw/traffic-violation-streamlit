@@ -458,18 +458,23 @@ class Api:
         a finished review quickly — get_review is. The stream ends by itself either way.
         The first item of a playback is {"type": "replay"}, which carries no data.
         """
-        url = self._url(f"/sites/{site_id}/violations/{violation_id}/review/events")
+        return self._events(
+            f"/sites/{site_id}/violations/{violation_id}/review/events", {"after": after}, "the review"
+        )
+
+    def _events(self, path: str, params: dict, what: str) -> Iterator[dict]:
+        url = self._url(path)
         try:
             response = self.session.get(
                 url,
-                params={"after": after},
+                params=params,
                 headers={"Accept": "text/event-stream"},
                 stream=True,
                 # Connect quickly, but a model turn can be silent for a long while.
                 timeout=(self.timeout, 300),
             )
         except requests.exceptions.RequestException as exc:
-            raise ApiUnreachable(f"Could not follow the review: {exc}") from exc
+            raise ApiUnreachable(f"Could not follow {what}: {exc}") from exc
         with response:
             if response.status_code >= 400:
                 raise ApiError(response.status_code, _detail_of(response), url)
@@ -489,7 +494,40 @@ class Api:
                     elif line.startswith("data:"):
                         data.append(line[5:].lstrip())
             except requests.exceptions.RequestException as exc:
-                raise ApiUnreachable(f"The review stream broke off: {exc}") from exc
+                raise ApiUnreachable(f"The stream of {what} broke off: {exc}") from exc
+
+    # ---- chats ------------------------------------------------------------
+    # Off on a backend without CHAT_ENABLED: every chat route answers 404 there.
+
+    def _chats(self, site_id: str, violation_id: str, tail: str = "") -> str:
+        return f"/sites/{site_id}/violations/{violation_id}/chats{tail}"
+
+    def list_chats(self, site_id: str, violation_id: str) -> list[dict]:
+        return self._request("GET", self._chats(site_id, violation_id))
+
+    def start_chat(self, site_id: str, violation_id: str) -> dict:
+        return self._request("POST", self._chats(site_id, violation_id))
+
+    def get_chat(self, site_id: str, violation_id: str, chat_id: str) -> dict:
+        """The chat with each question, its reply or error, and where its steps start and end."""
+        return self._request("GET", self._chats(site_id, violation_id, f"/{chat_id}"))
+
+    def ask_chat(self, site_id: str, violation_id: str, chat_id: str, text: str) -> dict:
+        """202 with the chat, its new question last; 409 while it still answers the one before."""
+        return self._request("POST", self._chats(site_id, violation_id, f"/{chat_id}/messages"), json={"text": text})
+
+    def delete_chat(self, site_id: str, violation_id: str, chat_id: str) -> None:
+        self._request("DELETE", self._chats(site_id, violation_id, f"/{chat_id}"))
+
+    def chat_events(
+        self, site_id: str, violation_id: str, chat_id: str, after: int = -1, paced: bool = True
+    ) -> Iterator[dict]:
+        """A chat's steps: followed live while it answers; a finished chat's are played back, or sent at once with
+        paced=False."""
+        return self._events(
+            self._chats(site_id, violation_id, f"/{chat_id}/events"),
+            {"after": after, "paced": str(paced).lower()}, "the chat",
+        )
 
 
 def _signed_headers(url: str) -> set[str]:

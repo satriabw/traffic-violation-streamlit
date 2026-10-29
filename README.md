@@ -31,6 +31,13 @@ The API address is under **Connection** in the sidebar, next to a status dot tha
 red when `/health` stops answering. Restart the server after changing anything under
 `lib/`: Streamlit reruns a page on change, but keeps imported modules it already loaded.
 
+## The chat (behind a flag)
+
+With `CHAT_ENABLED=1` here and on site-service, the Violations page shows **Ask about this violation** under the
+review: pick a chat or start a new one, ask up to five questions, follow each answer as it is written, and unfold the
+steps behind any reply. `GET/POST .../violations/{id}/chats`, `GET/DELETE .../chats/{chat}`,
+`POST .../chats/{chat}/messages`, `GET .../chats/{chat}/events`.
+
 ## The pages
 
 | Page | What it does | Endpoints |

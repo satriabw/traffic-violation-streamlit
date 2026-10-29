@@ -17,7 +17,7 @@ from __future__ import annotations
 import requests
 import streamlit as st
 
-from lib import evidence, live, review, ui
+from lib import chat, evidence, live, review, ui
 from lib.api import ApiError, ApiUnreachable
 
 
@@ -268,6 +268,12 @@ if selected:
     if steps is not None:
         st.divider()
         review.debug(steps, violation["id"][:8])
+
+    # ---- chat -------------------------------------------------------------
+
+    if chat.ENABLED:
+        st.divider()
+        chat.draw(client, site["id"], violation["id"])
 
     # ---- trajectories -----------------------------------------------------
 
