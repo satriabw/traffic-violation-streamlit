@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { get } from '@/lib/api';
 import type { Site } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
+import { DetectionTab } from '@/components/site/detection-tab';
 import { SetupTab } from '@/components/site/setup-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -50,7 +51,9 @@ function SitePage() {
         <TabsContent value="setup">
           <SetupTab key={siteId} siteId={siteId} onDetection={() => navigate('detection')} />
         </TabsContent>
-        <TabsContent value="detection"><p>Detection controls will be available here.</p></TabsContent>
+        <TabsContent value="detection">
+          <DetectionTab key={siteId} siteId={siteId} />
+        </TabsContent>
       </Tabs>
     </div>
   );
