@@ -18,6 +18,10 @@ describe("request gate", () => {
     delete process.env.CONSOLE_PASSWORD;
     expect(proxy(request())?.status).toBe(503);
   });
+  it("refuses everything when no user is set", () => {
+    delete process.env.CONSOLE_USER;
+    expect(proxy(request())?.status).toBe(503);
+  });
   it("asks for credentials", () => {
     const response = proxy(request());
     expect(response?.status).toBe(401);

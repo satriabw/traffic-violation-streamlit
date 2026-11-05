@@ -53,7 +53,7 @@ export function ReviewPanel({ siteId, violationId, status, updatedAt }: {
   }, [client, path, siteId, violationId, status, started]);
 
   useEffect(() => {
-    if (!steps.data) return;
+    if (!steps.data || !showSteps) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(steps.data, null, 2)], { type: 'application/json' }));
     const anchor = download.current;
     if (anchor) anchor.href = url;
@@ -70,7 +70,7 @@ export function ReviewPanel({ siteId, violationId, status, updatedAt }: {
     {review.isPending && !following && <p role="status">Loading review…</p>}
     {completed && <FinishedReview review={completed} />}
     {failed && <div role="alert"><p>The last review failed and is not retried automatically. Press the button below to try again.</p><p>{review.data?.error || progress.error}</p></div>}
-    {!following && !completed && !failed && review.isSuccess && <p>Not reviewed yet. This violation has not been sent for review.</p>}
+    {!following && !completed && !failed && review.isSuccess && <p>{review.data?.status === 'running' || status === 'pending' ? 'The review is still running.' : 'Not reviewed yet. This violation has not been sent for review.'}</p>}
     {!following && (['detected', 'failed'].includes(status) || failed) && <div className="space-y-2">
       <Button disabled={start.isPending} onClick={() => start.mutate()}>{start.isPending ? 'Starting…' : status === 'failed' || failed ? 'Review again' : 'Start the review'}</Button>
       <p className="text-sm text-muted-foreground">Safe to press more than once: a violation is only reviewed once at a time, and a finished review is simply shown again.</p>

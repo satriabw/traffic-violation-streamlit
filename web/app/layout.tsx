@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <body className="min-h-full"><Providers><TooltipProvider><SidebarProvider>
       <Suspense fallback={<div className="w-64 shrink-0" aria-label="Loading navigation" />}><AppSidebar /></Suspense><SidebarInset>
         <header className="flex h-14 items-center border-b px-4"><SidebarTrigger /></header>
-        <main className="flex-1 p-6">{children}</main>
+        <div className="flex-1 p-6">{children}</div>
       </SidebarInset><Toaster />
     </SidebarProvider></TooltipProvider></Providers></body>
   </html>;

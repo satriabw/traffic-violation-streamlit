@@ -5,6 +5,8 @@ A Streamlit operator front end for `site-service` — the demo UI for the
 `Traffic Violation API.postman_collection.json`, plus the ones the collection lists
 without filling in (`GET .../violations` and the three `.../review` routes).
 
+The Next.js revamp is in [`web/`](web/README.md), with site setup, detection, evidence reviews, chat and live viewing. See its README for Node setup, authentication, storage CORS and deployment; the Streamlit app remains available during live validation.
+
 ## Run it
 
 The backend first — from the `traffic-violation` repo:
