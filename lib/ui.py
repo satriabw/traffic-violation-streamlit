@@ -21,6 +21,7 @@ import re
 import urllib.parse
 from typing import Any
 
+import requests
 import streamlit as st
 
 from lib.api import API_PREFIX, Api, ApiError, ApiUnreachable, DEFAULT_BASE_URL, normalise_base_url
@@ -463,3 +464,17 @@ def empty(message: str, hint: str = "") -> None:
         + "</div>",
         unsafe_allow_html=True,
     )
+
+
+@st.cache_data(show_spinner=False, ttl=900, max_entries=64)
+def fetch_bytes(cache_key: str, _url: str) -> bytes:
+    """Evidence objects, cached by their immutable key rather than their URL.
+
+    The URL is a presigned link minted fresh on every read, so caching on it would miss
+    every time. The key underneath it is stable for the life of the object — the worker
+    rewrites both keys on every transition, so a key never outlives what it points at.
+    The leading underscore keeps the volatile URL out of the hash.
+    """
+    response = requests.get(_url, timeout=90)
+    response.raise_for_status()
+    return response.content
