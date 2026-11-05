@@ -44,6 +44,18 @@ describe('evidence maths', () => {
     expect(involved(tracks, 1, null, 0, null).map(t => t.trackId)).toEqual([1, 3, 5]);
   });
 
+  it('rounds half-second sample floors to even at odd frame rates', () => {
+    const vehicle = track(1, 'vehicle');
+    const pedestrian = { ...track(2), frameIdxs: Array.from({ length: 12 }, (_, i) => i) };
+    expect(involved([vehicle, pedestrian], 1, configuration, 0, 25)).toEqual([vehicle, pedestrian]);
+    expect(involved([vehicle, pedestrian], 1, configuration, 0, 27)).toEqual([vehicle]);
+
+    const thirteen = { ...pedestrian, frameIdxs: Array.from({ length: 13 }, (_, i) => i) };
+    const fourteen = { ...pedestrian, frameIdxs: Array.from({ length: 14 }, (_, i) => i) };
+    expect(involved([vehicle, thirteen], 1, configuration, 0, 27)).toEqual([vehicle]);
+    expect(involved([vehicle, fourteen], 1, configuration, 0, 27)).toEqual([vehicle, fourteen]);
+  });
+
   it('uses three stable palette slots and reports only selected implausible speeds', () => {
     const colours = colourMap([5, 9, 12, 20]);
     expect([...colours]).toEqual([[5, '#2a78d6'], [9, '#eb6834'], [12, '#1baf7a']]);

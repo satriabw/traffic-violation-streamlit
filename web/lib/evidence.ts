@@ -100,6 +100,15 @@ function inside(box: number[], polygon: number[][]): boolean {
   return hit;
 }
 
+// Python's round chooses the even integer when a positive sample floor is halfway.
+function roundToEven(value: number): number {
+  const lower = Math.floor(value);
+  if (value - lower === 0.5) {
+    return lower % 2 === 0 ? lower : lower + 1;
+  }
+  return Math.round(value);
+}
+
 export function involved(
   tracks: Track[],
   violatorId: number | null | undefined,
@@ -115,7 +124,7 @@ export function involved(
   const box = bboxAt(violator, frame);
   const occupied = box ? zones.find(zone => inside(box, zone)) : undefined;
   const crosswalks = occupied ? [occupied] : zones;
-  const shortest = Math.round(MIN_TRACK_SECONDS * (fps || FALLBACK_FPS));
+  const shortest = roundToEven(MIN_TRACK_SECONDS * (fps || FALLBACK_FPS));
   const scored = tracks
     .filter(t => t.kind === 'pedestrian' && t.frameIdxs.length >= shortest)
     .map(t => ({
