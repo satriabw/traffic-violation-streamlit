@@ -1,13 +1,18 @@
 import type { NextConfig } from "next";
-
 const nextConfig: NextConfig = {
   compress: false,
   poweredByHeader: false,
   async rewrites() {
     const base = (process.env.API_BASE_URL || "http://localhost:8001").replace(/\/$/, "");
     return [
-      { source: "/api/v1/:path*", destination: `${base}/api/v1/:path*` },
-      { source: "/health", destination: `${base}/health` },
+      {
+        source: "/api/v1/:path*",
+        destination: `${base}/api/v1/:path*`
+      },
+      {
+        source: "/health",
+        destination: `${base}/health`
+      },
     ];
   },
   async headers() {
@@ -22,10 +27,20 @@ const nextConfig: NextConfig = {
       "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'",
     ].join("; ");
     return [{
-      source: "/:path*", headers: [
-        { key: "Content-Security-Policy", value: csp },
-        { key: "Referrer-Policy", value: "no-referrer" },
-        { key: "X-Content-Type-Options", value: "nosniff" },
+      source: "/:path*",
+      headers: [
+        {
+          key: "Content-Security-Policy",
+          value: csp
+        },
+        {
+          key: "Referrer-Policy",
+          value: "no-referrer"
+        },
+        {
+          key: "X-Content-Type-Options",
+          value: "nosniff"
+        },
       ]
     }];
   },
@@ -40,5 +55,4 @@ const nextConfig: NextConfig = {
     },
   },
 };
-
 export default nextConfig;
