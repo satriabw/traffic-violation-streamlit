@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { Providers } from "@/app/providers";
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return <html lang="en" className={`${inter.variable} h-full antialiased`}>
     <body className="min-h-full"><Providers><TooltipProvider><SidebarProvider>
-      <AppSidebar /><SidebarInset>
+      <Suspense fallback={<div className="w-64 shrink-0" aria-label="Loading navigation" />}><AppSidebar /></Suspense><SidebarInset>
         <header className="flex h-14 items-center border-b px-4"><SidebarTrigger /></header>
         <main className="flex-1 p-6">{children}</main>
       </SidebarInset><Toaster />
