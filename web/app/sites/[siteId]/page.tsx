@@ -8,6 +8,7 @@ import { get } from '@/lib/api';
 import type { Site } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
 import { DetectionTab } from '@/components/site/detection-tab';
+import { ViewTab } from '@/components/site/view-tab';
 import { SetupTab } from '@/components/site/setup-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -47,7 +48,7 @@ function SitePage() {
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="detection">Detection</TabsTrigger>
         </TabsList>
-        <TabsContent value="view"><p>Site view will be available here.</p></TabsContent>
+        <TabsContent value="view">{tab === 'view' && <ViewTab key={siteId} siteId={siteId} />}</TabsContent>
         <TabsContent value="setup">
           <SetupTab key={siteId} siteId={siteId} onDetection={() => navigate('detection')} />
         </TabsContent>

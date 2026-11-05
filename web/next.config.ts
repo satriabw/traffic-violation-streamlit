@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   compress: false,
+  experimental: { proxyTimeout: 600_000 },
   poweredByHeader: false,
   async rewrites() {
     const base = (process.env.API_BASE_URL || "http://localhost:8001").replace(/\/$/, "");
@@ -44,8 +45,6 @@ const nextConfig: NextConfig = {
       ]
     }];
   },
-  cacheComponents: true,
-  partialPrefetching: true,
   turbopack: {
     rules: {
       "*.css": {
