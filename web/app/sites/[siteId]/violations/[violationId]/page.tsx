@@ -4,11 +4,13 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { get, getOrNull } from '@/lib/api';
+import { CHAT_ENABLED, get, getOrNull } from '@/lib/api';
 import { eventTime, frameTime, safeUrl, ts } from '@/lib/format';
 import { reviewLabel } from '@/lib/status';
 import { cameraView, colourMap, groundZones, implausible, involved, label, tracksOf } from '@/lib/evidence';
 import type { Doc, FileRow, Source, Violation } from '@/lib/types';
+import { ChatPanel } from '@/components/chat-panel';
+import { ReviewPanel } from '@/components/review-panel';
 import { ErrorAlert } from '@/components/notice';
 import { StatusBadge } from '@/components/status-badge';
 import { BoxesOverlay } from '@/components/evidence/boxes-overlay';
@@ -107,7 +109,7 @@ function Evidence({ violation, source, configuration }: {
             : <p>{violation.evidence_status === 'pending' ? 'The image is still being prepared.' : violation.evidence_status === 'failed' ? 'The evidence clip could not be created for this violation.' : 'No evidence image is available.'}</p>}
           {clip && <div className="space-y-2"><h3 className="font-medium">Clip</h3><video src={clip} controls preload="metadata" className="w-full" /><p className="text-sm text-muted-foreground">The clip covers the same time span as the violation record.</p></div>}
         </section>
-        <aside aria-label="Evidence review" className="min-w-0" />
+        <aside aria-label="Evidence review" className="min-w-0"><ReviewPanel key={violation.id} siteId={violation.site_id} violationId={violation.id} status={violation.explanation_status} updatedAt={violation.updated_at} />{CHAT_ENABLED && <ChatPanel key={`chat-${violation.id}`} siteId={violation.site_id} violationId={violation.id} />}</aside>
       </div>
       {tracks.length > 0 && colours.size > 0 && <section className="space-y-4 border-t pt-6">
         <h2 className="text-xl font-semibold">Paths of the involved road users</h2>
