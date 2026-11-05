@@ -46,13 +46,15 @@ export function SetupTab({ siteId, onDetection }: { siteId: string; onDetection:
   const source = useQuery({ queryKey: ['sources', siteId], queryFn: () => getOrNull<Source>(`${path}/sources`) });
   const configuration = useQuery({ queryKey: ['configurations', siteId], queryFn: () => getOrNull<Doc>(`${path}/configurations`) });
   const calibration = useQuery({ queryKey: ['calibrations', siteId], queryFn: () => getOrNull<Doc>(`${path}/calibrations`) });
+  async function onSourceAttached() {
+    await client.invalidateQueries({ queryKey: ['sources', siteId] });
+    await client.invalidateQueries({ queryKey: ['site', siteId] });
+    await client.invalidateQueries({ queryKey: ['sites'] });
+  }
+
   const attach = useMutation({
     mutationFn: (body: { kind: 'video' | 'stream'; file_id?: string; stream_url?: string; recorded_at?: string | null }) => post<Source>(`${path}/sources`, body),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ['sources', siteId] });
-      await client.invalidateQueries({ queryKey: ['site', siteId] });
-      await client.invalidateQueries({ queryKey: ['sites'] });
-    },
+    onSuccess: onSourceAttached,
   });
   const videoAttach = useMutation({
     mutationFn: (row: FileRow) => {
@@ -66,11 +68,7 @@ export function SetupTab({ siteId, onDetection }: { siteId: string; onDetection:
         recorded_at: recorded?.toISOString() ?? null,
       });
     },
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ['sources', siteId] });
-      await client.invalidateQueries({ queryKey: ['site', siteId] });
-      await client.invalidateQueries({ queryKey: ['sites'] });
-    },
+    onSuccess: onSourceAttached,
   });
   const active = source.data;
   const metadata = active?.metadata;
