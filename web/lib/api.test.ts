@@ -112,7 +112,7 @@ it('suppresses inferred MIME for unsigned uploads without buffering', async () =
   expect(req).toBeInstanceOf(RealRequest);
   expect(req.headers.has('Content-Type')).toBe(false);
   expect(await req.text()).toBe('hello');
-  expect(req.credentials).toBe('omit');
+  expect(req.credentials).toBe('same-origin');
 });
 
 it('rejects missing signed MIME and unsafe upload URLs', async () => {
@@ -187,4 +187,34 @@ it('checks stream errors before reading and paginates sites', async () => {
   }, {
     id: '2'
   }]);
+});
+
+
+it.each([
+  ['/api/v1/storage/local.mp4', false],
+  ['/api/v1/storage/local.mp4?X-Amz-SignedHeaders=content-type', true],
+  ['https://r2.example/video.mp4', false],
+  ['https://r2.example/video.mp4?X-Amz-SignedHeaders=content-type', true],
+])('uses browser origin-scoped credentials for upload %s', async (url, signed) => {
+  const file = new File(['video'], 'video.mp4', { type: 'video/mp4' });
+  const fetchMock = mock(
+    Response.json({ id: 'local', upload_url: url }),
+    new Response(),
+    Response.json({ id: 'local' }),
+  );
+
+  await upload(file, 'video');
+
+  const [input, init] = fetchMock.mock.calls[1];
+  if (signed) {
+    expect(init.credentials).toBe('same-origin');
+    expect(init.body).toBe(file);
+    expect(new Headers(init.headers).get('Authorization')).toBeNull();
+    expect(new Headers(init.headers).get('Content-Type')).toBe(file.type);
+  } else {
+    expect(input).toBeInstanceOf(Request);
+    expect(input.credentials).toBe('same-origin');
+    expect(input.headers.get('Authorization')).toBeNull();
+    expect(input.headers.get('Content-Type')).toBeNull();
+  }
 });

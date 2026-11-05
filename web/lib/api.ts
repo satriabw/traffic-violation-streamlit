@@ -130,7 +130,7 @@ export async function upload(file: File, type: FileType): Promise<FileRow> {
       headers: {
         'Content-Type': file.type
       },
-      credentials: 'omit'
+      credentials: 'same-origin'
     });
   }
   else {
@@ -138,7 +138,7 @@ export async function upload(file: File, type: FileType): Promise<FileRow> {
     const req = new Request(absolute, {
       method: 'PUT',
       body: file,
-      credentials: 'omit'
+      credentials: 'same-origin'
     });
     req.headers.delete('Content-Type');
     res = await checkedFetch(req);
