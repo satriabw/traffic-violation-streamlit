@@ -1,5 +1,7 @@
 # Traffic Violation Console in Next.js: implementation plan
 
+> Historical migration document. The final interface, authentication and debug trace evolved during validation. See [the console guide](../../../web/README.md) and [acceptance results](../../acceptance/2026-11-06-nextjs-console.md) for current behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild the Streamlit operator console as a small, deployable Next.js + shadcn/ui app in `web/`, at parity

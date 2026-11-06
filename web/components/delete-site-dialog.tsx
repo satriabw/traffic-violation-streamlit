@@ -44,7 +44,7 @@ export function DeleteSiteDialog({ site, onDeleted }: { site: Site; onDeleted?: 
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Delete site</DialogTitle>
-          <DialogDescription>A site that has recorded violations cannot be deleted, so violation records are never removed by accident. Type the site name to confirm.</DialogDescription>
+          <DialogDescription>This removes the site from the console. Its stored records are retained by the backend. Type the site name to confirm.</DialogDescription>
         </DialogHeader>
         <p className="font-medium break-all">{site.name}</p>
         <form className="space-y-4" onSubmit={(event) => {

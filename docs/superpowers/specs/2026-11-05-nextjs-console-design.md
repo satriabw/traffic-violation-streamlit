@@ -1,5 +1,7 @@
 # Traffic Violation Console in Next.js: design
 
+> Historical migration document. The final interface, authentication and debug trace evolved during validation. See [the console guide](../../../web/README.md) and [acceptance results](../../acceptance/2026-11-06-nextjs-console.md) for current behavior.
+
 The Streamlit console (`app.py`, `pages/`, `lib/`) rewritten as a Next.js app with shadcn/ui, in `web/`. It does the
 same things against the same site-service API, with less code, and it is safe to put on a network.
 

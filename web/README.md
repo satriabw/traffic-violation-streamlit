@@ -60,7 +60,7 @@ The request gate protects pages, API requests and feeds. Browsers sign in at `/l
 | Route | What it does |
 |---|---|
 | `/` | Overview figures, violations per day/site, sites and recent runs |
-| `/sites` | Filter, create and delete sites; deletion requires typing the name |
+| `/sites` | Filter, create and remove sites from the console; deletion requires typing the name |
 | `/site-view?site=` | Current video or live feed with configuration layers |
 | `/site-setup?site=` | Upload and attach source, configuration and calibration; readiness checks |
 | `/detection?site=` | Start detection, stop stream recording, follow runs |
