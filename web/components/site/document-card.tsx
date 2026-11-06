@@ -1,17 +1,22 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { Loading } from '@/components/loading';
+import { useId, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, getOrNull, post } from '@/lib/api';
 import { bytesHuman, safeUrl, ts } from '@/lib/format';
 import type { Doc, FileRow } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
 import { UploadForm } from '@/components/upload-form';
+import { ChevronDown, Download, FileCheck2, Focus, SlidersHorizontal } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-export function DocumentCard({ siteId, resource, title, blurb }: {
+export function DocumentCard({ siteId, resource, title, blurb, children, expanded = false }: {
+  expanded?: boolean;
+  children?: ReactNode;
   siteId: string;
   resource: 'calibrations' | 'configurations';
   title: string;
@@ -41,36 +46,34 @@ export function DocumentCard({ siteId, resource, title, blurb }: {
   });
   const download = safeUrl(file.data?.download_url);
 
-  return (
-    <section className="space-y-4 rounded-lg border p-5">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="text-sm text-muted-foreground">{blurb}</p>
-      {active.isPending && <p role="status">Loading active version…</p>}
+  const Icon = resource === 'calibrations' ? Focus : SlidersHorizontal;
+  return <details open={expanded || undefined} className="group rounded-xl border bg-background">
+    <summary className="flex cursor-pointer list-none items-center gap-4 px-5 py-3 [&::-webkit-details-marker]:hidden">
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Icon className="size-[18px] text-muted-foreground" /></div>
+      <div className="min-w-0 flex-1"><h2 className="text-sm font-medium">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{active.data ? `${file.data?.name || 'Document attached'} · v${active.data.version}` : 'Optional · not attached'}</p></div>
+      {active.data && <Badge variant="secondary" className="hidden sm:inline-flex"><FileCheck2 className="size-3" />Attached</Badge>}
+      <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+    </summary>
+    <div className="space-y-5 border-t px-5 py-5 sm:px-6">
+      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{blurb}</p>
+      {active.isPending && <Loading variant="panel" label="Loading active version…" />}
       {active.isError && <ErrorAlert error={active.error} />}
-      {active.data && (
-        <div className="space-y-2">
-          <p>Active version <strong>v{active.data.version}</strong> · attached {ts(active.data.created_at, false)}</p>
-          <p className="text-sm break-all">file <code>{active.data.file_id}</code> · doc <code>{active.data.id}</code></p>
-          {file.data && <p>{file.data.name} · {bytesHuman(file.data.size_bytes)}</p>}
-          {download && <a className="underline" href={download} download>Download {file.data?.name}</a>}
-          {file.isError && <ErrorAlert error={file.error} />}
-          <details className="space-y-3">
-            <summary className="cursor-pointer">Invalidate this version&apos;s runs</summary>
-            <p>Found v{active.data.version} wrong? Marks every run judged under this version invalid: they leave the run list and their violations leave the review queue. The version itself stays — upload a corrected one and run detection again.</p>
-            <Label htmlFor={id}>Reason</Label>
-            <Input id={id} value={reason} onChange={(event) => setReason(event.target.value)} />
-            <Button disabled={!reason.trim() || invalidate.isPending} onClick={() => invalidate.mutate()}>Invalidate its runs</Button>
-            {invalidate.isError && <ErrorAlert error={invalidate.error} />}
-            {invalidate.data && <p role="status">{invalidate.data.invalidated} runs marked invalid</p>}
-          </details>
-        </div>
-      )}
-      {active.data === null && <p>No {resource.slice(0, -1)} attached yet.</p>}
-      <p>Upload a new {resource.slice(0, -1)} · attach as v{(active.data?.version ?? 0) + 1}</p>
-      <UploadForm types={[resource === 'calibrations' ? 'calibration' : 'configuration']} accept={resource === 'calibrations' ? '.yml,.yaml,.xml,.json' : '.json'} onUploaded={(row) => attach.mutate(row)} />
-      {attach.isPending && <p role="status">Attaching it to the site…</p>}
+      {active.data && <div className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 p-3"><div><p className="font-medium">{file.data?.name || `Version ${active.data.version}`}</p><p className="mt-1 text-xs text-muted-foreground">v{active.data.version} · {ts(active.data.created_at, false)}{file.data && ` · ${bytesHuman(file.data.size_bytes)}`}</p></div>{download && <Button size="sm" variant="outline" render={<a href={download} download />}><Download className="size-3.5" />Download</Button>}</div>
+        {file.isError && <ErrorAlert error={file.error} />}
+      </div>}
+      <UploadForm compact types={[resource === 'calibrations' ? 'calibration' : 'configuration']} accept={resource === 'calibrations' ? '.yml,.yaml,.xml,.json' : '.json'} onUploaded={row => attach.mutate(row)} />
+      {attach.isPending && <Loading label="Attaching to the site…" />}
       {attach.isError && <ErrorAlert error={attach.error} />}
-      {attach.isSuccess && <p role="status">Done.</p>}
-    </section>
-  );
+      {attach.isSuccess && <p role="status" className="text-sm">Document attached.</p>}
+      {children}
+      {active.data && <details className="border-t pt-4 text-sm"><summary className="cursor-pointer text-muted-foreground">Version details and run management</summary><div className="mt-4 space-y-3">
+        <p className="break-all text-xs text-muted-foreground">File {active.data.file_id} · Document {active.data.id}</p>
+        <p className="leading-relaxed text-muted-foreground">If this version is wrong, invalidate its runs to remove them and their violations from the queue. Upload a corrected document before running detection again.</p>
+        <Label htmlFor={id}>Reason for invalidating runs</Label><Input id={id} value={reason} onChange={event => setReason(event.target.value)} />
+        <Button variant="outline" disabled={!reason.trim() || invalidate.isPending} onClick={() => invalidate.mutate()}>Invalidate its runs</Button>
+        {invalidate.isError && <ErrorAlert error={invalidate.error} />}{invalidate.data && <p role="status">{invalidate.data.invalidated} runs marked invalid</p>}
+      </div></details>}
+    </div>
+  </details>;
 }

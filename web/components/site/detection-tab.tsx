@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,6 +9,10 @@ import { runSpan, ts } from '@/lib/format';
 import type { Page, Run, Session, Source, ViolationSummary } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
 import { StatusBadge } from '@/components/status-badge';
+import { workspaceHref } from '@/lib/navigation';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 
 const violationTypes = ['red_light_running', 'pedestrian_right_of_way'];
@@ -84,9 +89,10 @@ export function DetectionTab({ siteId }: { siteId: string }) {
   return (
     <div className="space-y-6 pt-4">
       <p>Start detection on the current source and follow its runs.</p>
-      <section className="space-y-3 rounded-lg border p-5">
-        <h2 className="text-lg font-semibold">Source</h2>
-        {source.isPending && <p role="status">Loading source…</p>}
+      <Card>
+        <CardHeader><CardTitle><h2>Source</h2></CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+        {source.isPending && <Loading variant="panel" label="Loading source…" />}
         {source.isError && <ErrorAlert error={source.error} />}
         {active === null && <p>This site has no source yet. Add a video or a live feed on Site Setup.</p>}
         {active && (
@@ -104,15 +110,17 @@ export function DetectionTab({ siteId }: { siteId: string }) {
             <p>Source version {active.version}. The calibration and configuration active now are pinned to the session, so attaching new ones later does not change what it judges with.</p>
           </>
         )}
-      </section>
-      <section className="space-y-3 rounded-lg border p-5">
-        <h2 className="text-lg font-semibold">Start detection</h2>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle><h2>Start detection</h2></CardTitle></CardHeader>
+        <CardContent className="space-y-4">
         <fieldset className="space-y-2">
           <legend>Violation types</legend>
           <p className="text-sm text-muted-foreground">Leave empty to check every type the server has switched on. Asking for a type that is switched off (red light running, until it is validated) is refused.</p>
           {violationTypes.map((type) => (
             <label key={type} className="flex items-center gap-2">
-              <input type="checkbox" checked={types.includes(type)} onChange={(event) => setTypes((current) => event.target.checked ? [...current, type] : current.filter((item) => item !== type))} />
+              <Checkbox aria-label={type.replaceAll('_', ' ')} checked={types.includes(type)} onCheckedChange={checked => setTypes(current => checked ? [...current, type] : current.filter(item => item !== type))} />
               {type.replaceAll('_', ' ')}
             </label>
           ))}
@@ -126,10 +134,12 @@ export function DetectionTab({ siteId }: { siteId: string }) {
         {start.isSuccess && <p role="status">Detection started</p>}
         {stop.isError && (stop.error instanceof ApiError && stop.error.status === 409 ? <p role="status">This feed is not being recorded.</p> : <ErrorAlert error={stop.error} />)}
         {stop.isSuccess && <p role="status">Stopping — the last piece is closed and its windows still run.</p>}
-      </section>
+        </CardContent>
+      </Card>
       {session && (
-        <section className="space-y-3 rounded-lg border p-5">
-          <h2 className="text-lg font-semibold">Last session started</h2>
+        <Card>
+          <CardHeader><CardTitle><h2>Last session started</h2></CardTitle></CardHeader>
+          <CardContent className="space-y-3">
           <p>session id <code>{session.id}</code></p>
           <StatusBadge value={session.status} prefix="status" />
           <p>calibration <code>{session.calibration_id ?? 'none'}</code></p>
@@ -137,31 +147,32 @@ export function DetectionTab({ siteId }: { siteId: string }) {
           <div className="flex flex-wrap gap-2">{session.types.map((type) => <StatusBadge key={type} value={type} />)}</div>
           <p>The status above is as it was when the session started; the runs below are live.</p>
           <details><summary>Technical details</summary><pre className="overflow-auto">{JSON.stringify(session, null, 2)}</pre></details>
-        </section>
+          </CardContent>
+        </Card>
       )}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Runs</h2>
         <p>One run per window of footage, newest first.</p>
-        {runs.isPending && <p role="status">Loading runs…</p>}
+        {runs.isPending && <Loading variant="table" label="Loading runs…" />}
         {runs.isError && <ErrorAlert error={runs.error} />}
         <div className="flex flex-wrap gap-2">{Object.entries(counts).map(([status, count]) => <StatusBadge key={status} value={status} label={`${status} ${count}`} />)}</div>
         {historicalSources.map((query, index) => query.isError && <ErrorAlert key={sourceIds[index]} error={query.error} />)}
         {runs.data && (runs.data.items.length ? (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead><tr>{['Created', 'Status', 'Footage', 'Types', 'Finished', 'Error'].map((label) => <th key={label} className="p-2">{label}</th>)}</tr></thead>
-                <tbody>{runs.data.items.map((run) => (
-                  <tr key={run.id} className="border-t">
-                    <td className="p-2">{ts(run.created_at)}</td>
-                    <td className="p-2"><StatusBadge value={run.status} /></td>
-                    <td className="p-2">{runSpan(historicalSources[sourceIds.indexOf(run.source_id ?? '')]?.data, run)}</td>
-                    <td className="p-2">{run.types.map((type) => type.replaceAll('_', ' ')).join(', ')}</td>
-                    <td className="p-2">{ts(run.finished_at)}</td>
-                    <td className="p-2">{run.error ?? ''}</td>
-                  </tr>
-                ))}</tbody>
-              </table>
+              <Table>
+                <TableHeader><TableRow>{['Created', 'Status', 'Footage', 'Types', 'Finished', 'Error'].map((label) => <TableHead key={label}>{label}</TableHead>)}</TableRow></TableHeader>
+                <TableBody>{runs.data.items.map((run) => (
+                  <TableRow key={run.id}>
+                    <TableCell>{ts(run.created_at)}</TableCell>
+                    <TableCell><StatusBadge value={run.status} /></TableCell>
+                    <TableCell>{runSpan(historicalSources[sourceIds.indexOf(run.source_id ?? '')]?.data, run)}</TableCell>
+                    <TableCell>{run.types.map((type) => type.replaceAll('_', ' ')).join(', ')}</TableCell>
+                    <TableCell>{ts(run.finished_at)}</TableCell>
+                    <TableCell>{run.error ?? ''}</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+              </Table>
             </div>
             {runs.data.total > runs.data.items.length && <p>Showing the latest {runs.data.items.length} of {runs.data.total}.</p>}
           </>
@@ -170,8 +181,8 @@ export function DetectionTab({ siteId }: { siteId: string }) {
       <div className="flex flex-wrap items-center gap-4 border-t pt-4">
         <p>Violations recorded: {violations.data?.total ?? '—'}{before !== null && violations.data && ` (${violations.data.total - before >= 0 ? '+' : ''}${violations.data.total - before})`}</p>
         <Button variant="outline" onClick={refresh}>Refresh</Button>
-        <label className="flex items-center gap-2"><input type="checkbox" checked={watch} onChange={(event) => setWatch(event.target.checked)} />Update automatically</label>
-        {!!violations.data?.total && <Link className="underline" href={`/sites/${encodeURIComponent(siteId)}/violations`}>Review violations</Link>}
+        <label className="flex items-center gap-2"><Checkbox aria-label="Update automatically" checked={watch} onCheckedChange={setWatch} />Update automatically</label>
+        {!!violations.data?.total && <Link className="underline" href={workspaceHref('/violations', siteId)}>Review violations</Link>}
       </div>
       {violations.isError && <ErrorAlert error={violations.error} />}
     </div>

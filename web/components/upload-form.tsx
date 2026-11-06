@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useId, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,7 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-export function UploadForm({ types, accept, onUploaded }: {
+export function UploadForm({ types, accept, onUploaded, compact = false }: {
+  compact?: boolean;
   types: FileType[];
   accept?: string;
   onUploaded: (file: FileRow) => void;
@@ -24,7 +26,7 @@ export function UploadForm({ types, accept, onUploaded }: {
   const mutation = useMutation({
     mutationFn: ({ file, type }: { file: File; type: FileType }) => upload(file, type),
     onSuccess: (row) => {
-      toast.success(`File id \`${row.id}\` — status \`${row.status}\``);
+      toast.success(compact ? 'File uploaded' : `File id \`${row.id}\` — status \`${row.status}\``);
       onUploaded(row);
     },
   });
@@ -37,7 +39,7 @@ export function UploadForm({ types, accept, onUploaded }: {
       }
     }}>
       <div className="space-y-2">
-        <Label htmlFor={`${id}-file`}>Any file</Label>
+        <Label htmlFor={`${id}-file`}>{types.length === 1 ? (types[0] === 'video' ? 'Video file' : `${types[0][0].toUpperCase()}${types[0].slice(1)} file`) : 'File'}</Label>
         <Input
           id={`${id}-file`}
           type="file"
@@ -70,11 +72,11 @@ export function UploadForm({ types, accept, onUploaded }: {
       )}
       {file && <p className="text-sm text-muted-foreground">{file.name} · {bytesHuman(file.size)} · <code>{file.type || 'unknown'}</code></p>}
       <Button type="submit" disabled={!file || !type || mutation.isPending}>
-        {mutation.isPending ? 'Uploading' : 'Upload'}
+        {mutation.isPending ? 'Uploading…' : compact ? 'Upload and attach' : 'Upload'}
       </Button>
-      {mutation.isPending && <p role="status">Uploading</p>}
+      {mutation.isPending && <Loading label="Uploading" />}
       {mutation.isError && <ErrorAlert error={mutation.error} />}
-      {mutation.data && (
+      {mutation.data && !compact && (
         <div role="status" className="space-y-2">
           <p>File id <code>{mutation.data.id}</code> — status <code>{mutation.data.status}</code></p>
           <pre className="overflow-auto rounded border p-3">{mutation.data.id}</pre>

@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '@/lib/api';
@@ -77,6 +78,7 @@ export default function FilesPage() {
             <Label htmlFor="file-id">File id</Label>
             <Input id="file-id" placeholder="f80b2b35-2cf9-477c-8b49-45c576752f11" value={fileId} onChange={(event) => setFileId(event.target.value)} />
           </div>
+          {id && lookup.isPending && <Loading variant="panel" label="Loading file…" />}
           {id && lookup.isError && <ErrorAlert error={lookup.error} />}
           {id && file && (
             <section className="space-y-4 rounded-lg border p-4">

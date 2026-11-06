@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
@@ -83,7 +84,7 @@ export default function OverviewPage() {
         <Button variant="outline" disabled={query.isFetching}
           onClick={() => client.invalidateQueries({ queryKey: ['overview'] })}>Refresh</Button>
       </header>
-      {query.isPending && <p role="status">Loading sites…</p>}
+      {query.isPending && <Loading variant="dashboard" label="Loading sites…" />}
       {query.isError && <ErrorAlert error={query.error} />}
       {data && !data.sites.length && (
         <Empty message="No sites yet." hint="Create one under Setup > Sites, then give it a source on Site setup." />

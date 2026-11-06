@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { CreateSiteDialog } from '@/components/create-site-dialog';
 import { DeleteSiteDialog } from '@/components/delete-site-dialog';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -58,21 +60,15 @@ export default function SitesPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
           <Label htmlFor="source-kind">Source</Label>
-          <select id="source-kind" value={kind} aria-describedby="source-kind-help"
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-            onChange={(event) => {
-              setKind(event.target.value);
-              setOffset(0);
-            }}>
-            <option value="">All sources</option>
-            <option value="video">Video</option>
-            <option value="stream">Live feed</option>
-          </select>
+          <Select value={kind} onValueChange={value => { setKind(value ?? ''); setOffset(0); }}>
+            <SelectTrigger id="source-kind" className="w-48" aria-describedby="source-kind-help"><SelectValue>{kind === 'video' ? 'Video' : kind === 'stream' ? 'Live feed' : 'All sources'}</SelectValue></SelectTrigger>
+            <SelectContent><SelectItem value="">All sources</SelectItem><SelectItem value="video">Video</SelectItem><SelectItem value="stream">Live feed</SelectItem></SelectContent>
+          </Select>
           <p id="source-kind-help" className="text-sm text-muted-foreground">Filters on the source each site uses now.</p>
         </div>
         <CreateSiteDialog onCreated={() => setOffset(0)} />
       </div>
-      {sites.isPending && <p role="status" className="text-muted-foreground">Loading sites…</p>}
+      {sites.isPending && <Loading variant="table" label="Loading sites…" />}
       {sites.isError && <ErrorAlert error={sites.error} />}
       {page && (
         <>
@@ -94,8 +90,8 @@ export default function SitesPage() {
                   return (
                     <TableRow key={site.id}>
                       <TableCell>
-                        <Link className="font-semibold underline underline-offset-4" href={`${path}?tab=view`}>{site.name}</Link>
-                        <p className="text-xs text-muted-foreground">{site.id}</p>
+                        <Link className="font-medium transition-colors hover:text-primary hover:underline hover:underline-offset-4" href={`${path}?tab=view`}>{site.name}</Link>
+
                       </TableCell>
                       <TableCell><SourceSummary source={site.source} /></TableCell>
                       <TableCell className="whitespace-nowrap">{ts(site.created_at, false)}</TableCell>

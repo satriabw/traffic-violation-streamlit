@@ -14,8 +14,8 @@ export function HealthDot() {
   });
   const connected = isSuccess && !isError;
   return (
-    <div role="status" className="flex items-center gap-2 px-2 py-1 text-sm">
-      <span aria-hidden="true" className={`size-2 rounded-full ${connected ? "bg-green-600" : "bg-red-600"}`} />
+    <div role="status" className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+      <span aria-hidden="true" className={`size-1.5 rounded-full ${connected ? "bg-green-600" : "bg-red-600"}`} />
       {connected ? "API connected" : "API unreachable"}
     </div>
   );

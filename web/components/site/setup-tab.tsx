@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getOrNull, post } from '@/lib/api';
@@ -8,6 +9,8 @@ import type { Doc, FileRow, Source } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
 import { UploadForm } from '@/components/upload-form';
 import { DocumentCard } from './document-card';
+import { ArrowRight, Check, Circle, Radio, Video, SlidersHorizontal, Focus } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,62 +79,50 @@ export function SetupTab({ siteId, onDetection }: { siteId: string; onDetection:
   const frames = metadata?.total_frames ?? (estimated ? Math.round(metadata!.fps! * metadata!.duration_seconds!) : null);
   const stream = active?.kind === 'stream';
   const ready = !!active && (stream || !!metadata?.fps);
-  const checks = [
-    ['Video or live feed attached', !!active],
-    [stream ? 'Live feed (checked when detection starts)' : 'Video checked', stream || !!metadata?.fps],
-    ['Configuration attached', !!configuration.data],
-    ['Calibration attached', !!calibration.data],
-  ] as const;
-
   return (
-    <div className="space-y-6 pt-4">
-      <p>Calibration, scene configuration and source for the selected site.</p>
-      <DocumentCard siteId={siteId} resource="calibrations" title="Camera calibration" blurb="The camera calibration file. It converts positions in the video image into real positions on the road, in metres. Without it, violations can still be detected, but vehicle paths and speeds cannot be estimated." />
-      <DocumentCard siteId={siteId} resource="configurations" title="Scene configuration" blurb="Which rules to check, and the road areas (polygons) they apply to. An area counts as a lane only when it is listed under `lanes`, whatever its name, and `controls` sets which lanes each traffic light governs. The optional `rules` block names the ROIs each rule reads; a rule without one reads every ROI." />
-      <details className="space-y-3 rounded-lg border p-5">
-        <summary className="cursor-pointer">Starter document</summary>
-        <p>Start from this template. Only format version 1 is accepted, and unknown section names are rejected — so a misspelt section name gives an error instead of silently disabling a rule. Each area needs at least three corner points. A `rules` entry may only name a rule listed under `violations` and ROIs declared under `rois`. Red light running (`rlr_violation`) is switched off on the server until it is validated.</p>
-        <pre className="overflow-auto rounded bg-muted p-4"><code>{starterBody}</code></pre>
-        <Button onClick={downloadStarter}>Download config.json</Button>
-      </details>
-      <section className="space-y-4 rounded-lg border p-5">
-        <h2 className="text-lg font-semibold">Active source</h2>
-        <p>Adding a new source keeps the previous ones on record. A detection session that has already started keeps using the source it started with.</p>
-        {source.isPending && <p role="status">Loading source…</p>}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-5">
+        <div className="flex items-center gap-3">{ready ? <Check className="size-4 text-emerald-600" /> : <Circle className="size-4 text-muted-foreground" />}<div><p className="text-sm font-medium">{ready ? 'Ready for detection' : 'Start with a video or live feed'}</p><p className="mt-1 text-xs text-muted-foreground">{ready ? 'You can refine the optional documents below.' : 'Configuration and calibration can be added later.'}</p></div></div>
+        <Button size="sm" disabled={!ready} onClick={onDetection}>Go to detection<ArrowRight className="size-3.5" /></Button>
+      </div>
+      {configuration.isError && <ErrorAlert error={configuration.error} />}{calibration.isError && <ErrorAlert error={calibration.error} />}
+      <Tabs defaultValue="source" className="gap-5">
+        <TabsList variant="line" className="h-auto max-w-full flex-wrap justify-start gap-3 border-b pb-2">
+          <TabsTrigger value="source" className="gap-2 px-2 py-2"><Video className="size-4" />Source{active && <Check className="size-3 text-emerald-600" />}</TabsTrigger>
+          <TabsTrigger value="configuration" className="gap-2 px-2 py-2"><SlidersHorizontal className="size-4" />Scene configuration{configuration.data && <Check className="size-3 text-emerald-600" />}</TabsTrigger>
+          <TabsTrigger value="calibration" className="gap-2 px-2 py-2"><Focus className="size-4" />Camera calibration{calibration.data && <Check className="size-3 text-emerald-600" />}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="source">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(15rem,2fr)]">
+          <section className="min-w-0 space-y-5 rounded-xl border p-5 sm:p-6">
+            <header className="space-y-1"><h2 className="text-base font-medium">Video or live camera</h2><p className="text-sm text-muted-foreground">Choose the source this site will use for detection.</p></header>
+
+
+        {source.isPending && <Loading label="Loading source…" />}
         {source.isError && <ErrorAlert error={source.error} />}
         {source.data === null && <p>No source attached yet. Detection needs a video or a live feed to run.</p>}
-        {active && (
-          <div className="space-y-2">
-            <p><Badge>{active.status}</Badge> {active.kind} · Version v{active.version}</p>
-            <p>Frames: {estimated ? '≈ ' : ''}{frames ?? '—'} · FPS: {metadata?.fps ?? '—'}</p>
-            {metadata?.resolution && <p>{metadata.resolution.width}×{metadata.resolution.height}{metadata.duration_seconds != null && ` · ${metadata.duration_seconds.toFixed(2)}s`}</p>}
-            {estimated && <p>The number of frames shown is estimated from the video length and frame rate, because this video file does not record it. Detection still runs: frames are counted as the video is cut into pieces.</p>}
-            {active.kind === 'video' && <p>{active.recorded_at ? `Recording started ${ts(active.recorded_at)}, so violations show the time they happened.` : 'No recording start time, so violations show how far into the video they happened. Add the video again with its start time to show clock times.'}</p>}
-            <p className="break-all">source <code>{active.id}</code>{active.stream_url && ` · ${active.stream_url}`}</p>
-          </div>
-        )}
         <Tabs defaultValue="video">
           <TabsList>
-            <TabsTrigger value="video">Upload a video</TabsTrigger>
-            <TabsTrigger value="stream">Use a live camera feed</TabsTrigger>
+            <TabsTrigger value="video" className="px-3"><Video className="size-4" />Video</TabsTrigger>
+            <TabsTrigger value="stream" className="px-3"><Radio className="size-4" />Live feed</TabsTrigger>
           </TabsList>
           <TabsContent value="video" className="space-y-4 pt-3">
-            <p>The video is checked when it is added, so a file that cannot be read is rejected now rather than failing detection later.</p>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={known} onChange={(event) => setKnown(event.target.checked)} />I know when this video was recorded</label>
-            <p className="text-sm text-muted-foreground">Optional. With it, violations show the clock time they happened; without it, how far into the video.</p>
+            <p className="text-sm text-muted-foreground">Upload a recording. We’ll check that it can be read.</p>
+            <label className="flex items-center gap-2"><Checkbox checked={known} onCheckedChange={setKnown} />Add a recording start time</label>
+            {known && <p className="text-xs text-muted-foreground">Optional. Uses clock times instead of time elapsed in the video.</p>}
             {known && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2"><Label htmlFor={`${id}-date`}>Recording date</Label><Input id={`${id}-date`} type="date" value={day} onChange={(event) => setDay(event.target.value)} /></div>
                 <div className="space-y-2"><Label htmlFor={`${id}-time`}>Start time (local)</Label><Input id={`${id}-time`} type="time" step={60} value={clock} onChange={(event) => setClock(event.target.value)} /></div>
               </div>
             )}
-            <UploadForm types={['video']} accept=".mp4,.mov,.mkv,.avi" onUploaded={(row) => videoAttach.mutate(row)} />
-            {videoAttach.isPending && <p role="status">Attaching it to the site…</p>}
+            <UploadForm compact types={['video']} accept=".mp4,.mov,.mkv,.avi" onUploaded={(row) => videoAttach.mutate(row)} />
+            {videoAttach.isPending && <Loading label="Attaching it to the site…" />}
             {videoAttach.isError && <ErrorAlert error={videoAttach.error} />}
             {videoAttach.data && <p role="status">Attached as v{videoAttach.data.version}.</p>}
           </TabsContent>
           <TabsContent value="stream" className="space-y-4 pt-3">
-            <p>A live camera feed is not checked when added; it is probed when detection starts, and recorded until you stop it on the Detection page.</p>
+            <p className="text-sm text-muted-foreground">Connect a camera. The feed is checked when detection starts.</p>
             <form className="space-y-3" onSubmit={(event) => {
               event.preventDefault();
               if (streamUrl.trim() && !attach.isPending) attach.mutate({ kind: 'stream', stream_url: streamUrl.trim() });
@@ -146,15 +137,30 @@ export function SetupTab({ siteId, onDetection }: { siteId: string; onDetection:
             {attach.data && <p role="status">Attached as v{attach.data.version}.</p>}
           </TabsContent>
         </Tabs>
-      </section>
-      <section className="space-y-3 rounded-lg border p-5">
-        <h2 className="text-lg font-semibold">Ready to detect?</h2>
-        {checks.map(([label, ok]) => <p key={label}><span aria-label={ok ? 'Ready' : 'Missing'}>{ok ? '✓' : '○'}</span> {label}</p>)}
-        {configuration.isError && <ErrorAlert error={configuration.error} />}
-        {calibration.isError && <ErrorAlert error={calibration.error} />}
-        <p className="text-sm text-muted-foreground">The first two are required before detection can run. Configuration and calibration are optional, but without them fewer rules can be checked, and vehicle paths and speeds cannot be estimated.</p>
-        <Button disabled={!ready} onClick={onDetection}>Go to detection</Button>
-      </section>
+          </section>
+          <aside className="min-w-0 space-y-5 self-start rounded-xl bg-muted/40 p-5 sm:p-6">
+            <div className="space-y-2"><h3 className="text-sm font-medium">Current source</h3>{active ? <><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{active.kind === 'video' ? 'Recorded video' : 'Live feed'}</Badge><span className="text-xs text-muted-foreground">Version {active.version}</span></div><p className="text-sm text-muted-foreground">{active.kind === 'video' ? `${metadata?.fps?.toFixed(2) ?? '—'} FPS${metadata?.resolution ? ` · ${metadata.resolution.width} × ${metadata.resolution.height}` : ''}` : 'The feed is checked when detection starts.'}</p></> : <p className="text-sm text-muted-foreground">No source yet. Add one to get started.</p>}</div>
+            <div className="space-y-2 border-t pt-4"><h3 className="text-sm font-medium">When you change sources</h3><p className="text-sm leading-relaxed text-muted-foreground">The new source is used for the next detection session. Sessions already running keep their original source.</p></div>
+        {active && (
+          <details className="rounded-lg bg-muted/50 p-3 text-sm"><summary className="cursor-pointer font-medium">Current source · {active.kind === 'stream' ? 'Live feed' : 'Video'} v{active.version}</summary><div className="mt-3 space-y-2 text-muted-foreground">
+            <p>Frames: {estimated ? '≈ ' : ''}{frames ?? '—'} · FPS: {metadata?.fps ?? '—'}</p>
+            {metadata?.resolution && <p>{metadata.resolution.width}×{metadata.resolution.height}{metadata.duration_seconds != null && ` · ${metadata.duration_seconds.toFixed(2)}s`}</p>}
+            {active.kind === 'video' && <p>{active.recorded_at ? `Recording started ${ts(active.recorded_at)}` : 'No recording start time. Violation times are relative to the video.'}</p>}
+            <p className="break-all text-xs">Source {active.id}{active.stream_url && ` · ${active.stream_url}`}</p>
+          </div></details>
+        )}
+
+          </aside>
+          </div>
+        </TabsContent>
+        <TabsContent value="configuration">
+      <DocumentCard expanded siteId={siteId} resource="configurations" title="Scene configuration" blurb="Choose the road areas and rules to check. Add a configuration file with your lanes, crossing areas and traffic lights.">
+        <details className="border-t pt-4 text-sm"><summary className="cursor-pointer text-muted-foreground">Need a starting point?</summary><div className="mt-4 space-y-3"><p className="leading-relaxed text-muted-foreground">Download the example and adjust the areas to your camera. Use format version 1 and at least three points for each area.</p><Button variant="outline" size="sm" onClick={downloadStarter}>Download config.json</Button><details><summary className="cursor-pointer text-muted-foreground">Preview example</summary><pre className="mt-3 overflow-auto rounded-lg bg-muted p-4 text-xs"><code>{starterBody}</code></pre></details></div></details>
+      </DocumentCard>
+        </TabsContent>
+        <TabsContent value="calibration"><DocumentCard expanded siteId={siteId} resource="calibrations" title="Camera calibration" blurb="Convert positions in the image into distances on the road. Add a calibration file to estimate vehicle paths and speeds." /></TabsContent>
+      </Tabs>
+      <p className="px-1 pt-2 text-xs leading-relaxed text-muted-foreground">A source is required. Configuration enables rules for your scene; calibration enables distance and speed estimates.</p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get, getOrNull } from '@/lib/api';
@@ -9,6 +10,7 @@ import type { Doc, FileRow, Source } from '@/lib/types';
 import { ErrorAlert } from '@/components/notice';
 import { RegionsOverlay } from '@/components/regions-overlay';
 import { StatusBadge } from '@/components/status-badge';
+import { VideoPlayer } from '@/components/video-player';
 import { Switch } from '@/components/ui/switch';
 
 const names = { lanes: 'Lanes', rois: 'ROIs', traffic_lights: 'Traffic lights' };
@@ -30,8 +32,7 @@ export function ViewTab({ siteId }: { siteId: string }) {
     staleTime: Infinity,
   });
   return <div className="space-y-4 pt-4">
-    <p>The current source, with the scene configuration drawn over it.</p>
-    {source.isPending && <p role="status">Loading source…</p>}
+    {source.isPending && <Loading variant="video" label="Loading source…" />}
     {source.isError && <ErrorAlert error={source.error} />}
     {configuration.isError && <ErrorAlert error={configuration.error} />}
     {document.isError && <ErrorAlert error={document.error} />}
@@ -57,27 +58,25 @@ function Player({ siteId, source, document, version }: { siteId: string; source:
   const clip = safeUrl(file.data?.download_url);
   return <div className="space-y-4">
     <p><StatusBadge value={source.status} prefix="source" /> {source.kind} · version v{source.version}</p>
-    <div className="flex flex-wrap gap-4">
+    <details className="text-sm"><summary className="cursor-pointer font-medium">Scene layers</summary><div className="mt-3 flex flex-wrap gap-4">
       <label className="flex items-center gap-2"><Switch checked={show} onCheckedChange={setShow} disabled={!document} />Configuration</label>
       {LAYERS.map(layer => <label key={layer} className="flex items-center gap-2"><Switch disabled={!show || !document} checked={layers.includes(layer)} onCheckedChange={on => setLayers(old => on ? [...old, layer] : old.filter(item => item !== layer))} />{names[layer]}</label>)}
       <label className="flex items-center gap-2"><Switch checked={labels} onCheckedChange={setLabels} disabled={!show || !document} />Region names</label>
-    </div>
-    {!document ? <p className="text-sm text-muted-foreground">No configuration attached, so there is nothing to draw. Add one on Site Setup.</p>
-      : <p className="text-sm text-muted-foreground">{LAYERS.map(layer => `${names[layer]} ${document.regions?.[layer]?.length ?? 0}`).join(' · ')} · configuration v{version}{size && `, drawn on ${size[0]}×${size[1]}`}</p>}
+    </div></details>
     {file.isError && <ErrorAlert error={file.error} />}
     {source.kind === 'stream' && <label className="flex items-center gap-2"><Switch checked={watching} onCheckedChange={on => { setFailed(false); setWatching(on); }} />Watch live</label>}
-    {source.kind === 'video' && file.isPending && source.file_id && <p role="status">Loading video…</p>}
+    {source.kind === 'video' && file.isPending && source.file_id && <Loading variant="video" label="Loading video…" />}
     {source.kind === 'video' && !file.isPending && !clip && <p>The video could not be found in storage.</p>}
     {(source.kind === 'video' && clip || source.kind === 'stream' && watching) && <div className="relative mx-auto max-w-5xl">
       {source.kind === 'video'
-        ? <video src={clip} controls muted playsInline preload="metadata" className="block h-auto w-full" onLoadedMetadata={e => setNatural([e.currentTarget.videoWidth, e.currentTarget.videoHeight])} onError={() => setFailed(true)} />
+        ? <VideoPlayer key={clip} src={clip!} poster={`/poster?${new URLSearchParams({ site: siteId, source: source.id })}`} label="Site video" muted onSize={setNatural} onError={() => setFailed(true)} />
         : <LiveImage siteId={siteId} onSize={setNatural} onError={() => setFailed(true)} />}
       {size && show && <RegionsOverlay document={document} size={size} layers={layers} labels={labels} />}
     </div>}
     {failed && <p role="alert">The source could not be played. For a live feed, check that ffmpeg is installed and the camera is reachable, then switch Watch live off and on.</p>}
-    {source.kind === 'stream' ? <><p>{watching ? 'Live' : 'Paused. Switch on Watch live to start the feed.'}</p><p className="text-sm text-muted-foreground">Shown at 2 frames a second. The reader runs on the console’s machine and stops when the viewer leaves. At most four feeds can be watched at once.</p></>
+    {source.kind === 'stream' ? <><p className="text-sm text-muted-foreground">{watching ? 'Live · 2 frames per second' : 'Switch on Watch live to start the feed.'}</p></>
       : <p className="text-sm text-muted-foreground">The regions are drawn over the player; the video itself is the source as uploaded.</p>}
-    <details><summary className="cursor-pointer">Technical details</summary><pre className="overflow-auto rounded bg-muted p-4 text-xs">{JSON.stringify({ source, configuration: document }, null, 2)}</pre></details>
+    <details><summary className="cursor-pointer">Technical details</summary><pre className="overflow-auto rounded bg-muted p-4 text-xs">{JSON.stringify({ source, configuration: document, configurationVersion: version }, null, 2)}</pre></details>
   </div>;
 }
 

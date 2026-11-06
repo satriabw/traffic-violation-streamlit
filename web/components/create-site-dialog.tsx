@@ -74,12 +74,12 @@ export function CreateSiteDialog({ onCreated }: { onCreated?: () => void }) {
             <Checkbox id="attach-stream" checked={attach} onCheckedChange={setAttach} disabled={create.isPending} />
             <Label htmlFor="attach-stream">Add a live camera feed link now</Label>
           </div>
-          <div className="space-y-2">
+          {attach && <div className="space-y-2">
             <Label htmlFor="stream-url">Stream URL</Label>
             <Input id="stream-url" placeholder="rtsp://…" value={streamUrl}
               onChange={(event) => setStreamUrl(event.target.value)} disabled={!attach || create.isPending} />
             <p className="text-sm text-muted-foreground">Only a live camera feed can be added here. To use a recorded video, upload it on Site Setup.</p>
-          </div>
+          </div>}
           {validation && <p id="site-name-error" role="alert" className="text-sm text-destructive">{validation}</p>}
           {create.isError && <ErrorAlert error={create.error} />}
           <DialogFooter>

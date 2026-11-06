@@ -1,5 +1,6 @@
 'use client';
 
+import { Loading } from '@/components/loading';
 import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -9,7 +10,9 @@ import { eventTime, frameTime, safeUrl, ts } from '@/lib/format';
 import { reviewLabel } from '@/lib/status';
 import { cameraView, colourMap, groundZones, implausible, involved, label, tracksOf } from '@/lib/evidence';
 import type { Doc, FileRow, Source, Violation } from '@/lib/types';
-import { ChatPanel } from '@/components/chat-panel';
+import { chatHref, workspaceHref } from '@/lib/navigation';
+import { VideoPlayer } from '@/components/video-player';
+import { Button } from '@/components/ui/button';
 import { ReviewPanel } from '@/components/review-panel';
 import { ErrorAlert } from '@/components/notice';
 import { StatusBadge } from '@/components/status-badge';
@@ -52,8 +55,8 @@ function ViolationPage() {
   });
   return (
     <div className="space-y-6">
-      <Link href={`/sites/${encodeURIComponent(siteId)}/violations`} className="text-sm underline">Back to the list</Link>
-      {violation.isPending && <p role="status">Loading violation…</p>}
+      <Link href={workspaceHref('/violations', siteId)} className="text-sm underline">Back to the list</Link>
+      {violation.isPending && <Loading variant="video" label="Loading violation…" />}
       {violation.isError && <ErrorAlert error={violation.error} />}
       {row && <>
         <header className="space-y-2">
@@ -64,25 +67,43 @@ function ViolationPage() {
             <StatusBadge value={row.explanation_status} label={reviewLabel(row.explanation_status)} prefix="review" />
             <StatusBadge value={row.evidence_status} prefix="evidence" />
           </div>
-          <p className="break-all text-sm text-muted-foreground">{row.id} · {frameTime(row.frame_index, source.data?.metadata?.fps)} · processed {ts(row.detected_at)}</p>
-          <p className="break-all text-sm text-muted-foreground">{row.source_name || 'source'}{row.source_version != null && ` v${row.source_version}`} · {row.calibration_version != null ? `calibration v${row.calibration_version}` : 'no calibration'} · {row.configuration_version != null ? `configuration v${row.configuration_version}` : 'no configuration'} · run {row.run_id}</p>
+
         </header>
         {row.evidence_status == null && <Alert><AlertDescription>No evidence clip exists for this violation — it was recorded before evidence clips were introduced, so none will be created.</AlertDescription></Alert>}
         {source.isError && <ErrorAlert error={source.error} />}
         {configuration.isError && <ErrorAlert error={configuration.error} />}
-        {(row.source_id && source.isPending) || (row.configuration_id && configuration.isPending)
-          ? <p role="status">Loading the source and configuration used for this violation…</p>
-          : <Evidence key={`${siteId}-${violationId}-${configuration.isSuccess}`} violation={row} source={source.data} configuration={configuration.data} />}
+        <Evidence key={`${siteId}-${violationId}`} violation={row} source={source.data} configuration={configuration.data} analysisLoading={!!((row.source_id && source.isPending) || (row.configuration_id && configuration.isPending))} />
+        <details className="border-t pt-4 text-sm"><summary className="cursor-pointer text-muted-foreground">Record details</summary><div className="mt-4 space-y-2 break-all text-xs text-muted-foreground"><p>{row.id} · {frameTime(row.frame_index, source.data?.metadata?.fps)} · processed {ts(row.detected_at)}</p><p>{row.source_name || 'source'}{row.source_version != null && ` v${row.source_version}`} · {row.calibration_version != null ? `calibration v${row.calibration_version}` : 'no calibration'} · {row.configuration_version != null ? `configuration v${row.configuration_version}` : 'no configuration'} · run {row.run_id}</p></div></details>
+
       </>}
     </div>
   );
 }
 
-function Evidence({ violation, source, configuration }: {
-  violation: Violation;
-  source?: Source | null;
-  configuration?: Configuration;
+function Evidence({ violation, source, configuration, analysisLoading }: {
+  violation: Violation; source?: Source | null; configuration?: Configuration; analysisLoading: boolean;
 }) {
+  const [stepsContainer, setStepsContainer] = useState<HTMLDivElement | null>(null);
+  const clip = safeUrl(violation.clip_url);
+  const thumbnail = safeUrl(violation.thumbnail_url);
+  return <div className="space-y-6">
+    <div className="grid items-start gap-6 xl:grid-cols-[3fr_2fr]">
+      <section aria-label="Violation evidence" className="min-w-0 space-y-3">
+        <h2 className="text-base font-medium">Violation clip</h2>
+        {clip ? <VideoPlayer key={clip} src={clip} poster={thumbnail} label="Violation evidence clip" /> : thumbnail
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={thumbnail} alt="Violation evidence" className="aspect-video w-full rounded-xl bg-muted object-contain" />
+          : <div className="rounded-xl bg-muted/40 p-8 text-center text-sm text-muted-foreground">{violation.evidence_status === 'pending' ? 'The evidence is still being prepared.' : 'No evidence image is available.'}</div>}
+        {CHAT_ENABLED && <Button variant="outline" size="sm" render={<Link href={chatHref(violation.site_id, violation.id)} />}>Ask about this violation in Chat</Button>}
+      </section>
+      <aside aria-label="Evidence review" className="min-w-0"><ReviewPanel key={violation.id} siteId={violation.site_id} violationId={violation.id} status={violation.explanation_status} updatedAt={violation.updated_at} stepsContainer={stepsContainer} /></aside>
+    </div>
+    <div ref={setStepsContainer} className="min-w-0 empty:hidden" />
+    {analysisLoading ? <details className="border-t pt-5"><summary className="cursor-pointer text-sm font-medium">Paths of the involved road users</summary><Loading variant="panel" label="Loading road-user analysis…" /></details> : <RoadUserAnalysis key={`${source?.id}-${!!configuration}`} violation={violation} source={source} configuration={configuration} />}
+  </div>;
+}
+
+function RoadUserAnalysis({ violation, source, configuration }: { violation: Violation; source?: Source | null; configuration?: Configuration }) {
   const tracks = tracksOf(violation.metadata);
   const fps = source?.metadata?.fps;
   const frame = violation.frame_index;
@@ -97,38 +118,20 @@ function Evidence({ violation, source, configuration }: {
   const [selected, setSelected] = useState(() => users.slice(0, 3).map(track => track.trackId));
   const colours = colourMap(selected);
   const fastest = implausible(tracks, colours);
-  const clip = safeUrl(violation.clip_url);
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-[3fr_2fr]">
-        <section className="min-w-0 space-y-4">
-          <h2 className="text-xl font-semibold">Evidence</h2>
-          {users.length > 0 && <TrackPicker tracks={users} selected={selected} onChange={setSelected} />}
-          {violation.thumbnail_url
-            ? <BoxesOverlay src={violation.thumbnail_url} tracks={tracks} frame={frame} sourceSize={sourceSize} colours={colours} violatorId={violatorId} />
-            : <p>{violation.evidence_status === 'pending' ? 'The image is still being prepared.' : violation.evidence_status === 'failed' ? 'The evidence clip could not be created for this violation.' : 'No evidence image is available.'}</p>}
-          {clip && <div className="space-y-2"><h3 className="font-medium">Clip</h3><video src={clip} controls preload="metadata" className="w-full" /><p className="text-sm text-muted-foreground">The clip covers the same time span as the violation record.</p></div>}
-        </section>
-        <aside aria-label="Evidence review" className="min-w-0"><ReviewPanel key={violation.id} siteId={violation.site_id} violationId={violation.id} status={violation.explanation_status} updatedAt={violation.updated_at} />{CHAT_ENABLED && <ChatPanel key={`chat-${violation.id}`} siteId={violation.site_id} violationId={violation.id} />}</aside>
-      </div>
-      {tracks.length > 0 && colours.size > 0 && <section className="space-y-4 border-t pt-6">
-        <h2 className="text-xl font-semibold">Paths of the involved road users</h2>
-        <p className="text-sm text-muted-foreground">Paths are shown on a top-down map in metres rather than over the video image, because camera perspective distorts distance: the same on-screen gap can be a few metres near the camera and tens of metres far away. <strong>Positions and speeds are estimates</strong> based on the camera calibration.</p>
-        {fastest != null && <Alert><AlertDescription>The fastest vehicle here is estimated at {fastest.toFixed(0)} m/s — about {(fastest * 3.6).toFixed(0)} km/h, which is not realistic. This usually means the camera calibration is inaccurate, which makes all speeds and positions on this page unreliable. The detection itself and its timing are not affected.</AlertDescription></Alert>}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="min-w-0 space-y-3"><h3 className="font-medium">Top-down view of the road (metres, estimated)</h3><GroundPlot tracks={tracks} colours={colours} fps={fps} violationT={moment} zones={groundZones(violation.metadata, configuration)} view={cameraView(violation.metadata, picture)} /></div>
-          <div className="min-w-0 space-y-3"><h3 className="font-medium">Estimated speed, last 10 seconds (m/s)</h3><SpeedChart tracks={tracks} colours={colours} fps={fps} violationT={moment} /></div>
-        </div>
-        <details className="rounded-lg border p-4">
-          <summary className="cursor-pointer font-medium">Road users involved in this violation</summary>
-          <ul className="mt-3 space-y-2">{users.map(track => <li key={`${track.kind}-${track.trackId}`}>{label(track)} — {track.frameIdxs.length ? `${track.frameIdxs.length} samples, frames ${track.frameIdxs[0]}–${track.frameIdxs[track.frameIdxs.length - 1]}` : 'no samples'}{track.trackId === violatorId && ' · violator'}</li>)}</ul>
-          {violatorId == null && <p className="mt-3 text-sm text-muted-foreground">This record does not mark which vehicle committed the violation — it was recorded before that information was stored.</p>}
-        </details>
-      </section>}
+  if (!tracks.length) return null;
+  return <details className="group min-w-0 border-t pt-5">
+    <summary className="cursor-pointer text-sm font-medium">Paths of the involved road users<span className="ml-2 text-xs font-normal text-muted-foreground">Key frame, paths and speed estimates</span></summary>
+    <div className="mt-5 space-y-5">
+      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Positions and speeds are estimates based on camera calibration. Paths use a top-down ground plane in metres, because perspective distorts distances in the video.</p>
+      {users.length > 0 && <TrackPicker tracks={users} selected={selected} onChange={setSelected} />}
+      {violation.thumbnail_url && <details className="rounded-xl border p-4"><summary className="cursor-pointer text-sm font-medium">Inspect the key frame</summary><div className="mt-4 max-w-3xl"><BoxesOverlay src={violation.thumbnail_url} tracks={tracks} frame={frame} sourceSize={sourceSize} colours={colours} violatorId={violatorId} /></div></details>}
+      {fastest != null && <Alert><AlertDescription>The fastest vehicle is estimated at {fastest.toFixed(0)} m/s ({(fastest * 3.6).toFixed(0)} km/h). Check the camera calibration; speeds and positions may be unreliable. Detection timing is unaffected.</AlertDescription></Alert>}
+      {colours.size > 0 && <div className="grid gap-6 lg:grid-cols-2"><div className="min-w-0 space-y-3"><h3 className="text-sm font-medium">Road paths (metres, estimated)</h3><GroundPlot tracks={tracks} colours={colours} fps={fps} violationT={moment} zones={groundZones(violation.metadata, configuration)} view={cameraView(violation.metadata, picture)} /></div><div className="min-w-0 space-y-3"><h3 className="text-sm font-medium">Speed over the last 10 seconds (m/s)</h3><SpeedChart tracks={tracks} colours={colours} fps={fps} violationT={moment} /></div></div>}
+      <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">Road-user samples</summary><ul className="mt-3 space-y-2 text-xs text-muted-foreground">{users.map(track => <li key={`${track.kind}-${track.trackId}`}>{label(track)} · {track.frameIdxs.length} samples{track.trackId === violatorId && ' · violator'}</li>)}</ul></details>
     </div>
-  );
+  </details>;
 }
 
 export default function Page() {
-  return <Suspense fallback={<p role="status">Loading violation…</p>}><ViolationPage /></Suspense>;
+  return <Suspense fallback={<Loading variant="video" label="Loading violation…" />}><ViolationPage /></Suspense>;
 }
