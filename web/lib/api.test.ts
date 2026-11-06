@@ -1,0 +1,220 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { ApiError, request, getOrNull, signedHeaders, upload, parseSse, streamEvents, allSites } from './api';
+const unreachable = 'Could not reach the API. Is the stack up? `docker compose up api` in the traffic-violation repo.';
+afterEach(() => vi.unstubAllGlobals());
+const mock = (...responses: Response[]) => {
+  const fn = vi.fn();
+  responses.forEach(r => fn.mockResolvedValueOnce(r));
+  vi.stubGlobal('fetch', fn);
+  return fn;
+};
+it('requests JSON under API prefix and handles empty responses', async () => {
+  const f = mock(Response.json({
+    id: 1
+  }), new Response(null, {
+    status: 204
+  }), new Response(''));
+  expect(await request('POST', '/sites', {
+    name: 'x'
+  })).toEqual({
+    id: 1
+  });
+  expect(f).toHaveBeenCalledWith('/api/v1/sites', expect.objectContaining({
+    body: '{"name":"x"}'
+  }));
+  expect(await request('DELETE', '/sites/x')).toBeUndefined();
+  expect(await request('GET', '/sites')).toBeUndefined();
+});
+
+it.each([[422, JSON.stringify({
+  detail: [{
+    loc: ['body', 'name'],
+    msg: 'Field required'
+  }]
+}), 'name: Field required'], [409, '{"detail":"busy"}', 'busy'], [502, '<html>Bad Gateway</html>', unreachable], [500, '', unreachable]])('flattens error %s', async (status, body, detail) => {
+  mock(new Response(body, {
+    status
+  }));
+  await expect(request('GET', '/sites')).rejects.toMatchObject({
+    status,
+    detail
+  });
+});
+
+it('handles 404 only by default', async () => {
+  mock(new Response('', {
+    status: 404
+  }), new Response('', {
+    status: 500
+  }));
+  expect(await getOrNull('/sites/x')).toBeNull();
+  await expect(getOrNull('/sites/x')).rejects.toBeInstanceOf(ApiError);
+});
+
+it('wraps fetch TypeError but preserves abort', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('offline')).mockRejectedValueOnce(new DOMException('Aborted', 'AbortError')));
+  await expect(request('GET', '/sites')).rejects.toMatchObject({
+    status: 0,
+    detail: unreachable
+  });
+  await expect(request('GET', '/sites')).rejects.toMatchObject({
+    name: 'AbortError'
+  });
+});
+
+it('reads signed header names', () => {
+  expect(signedHeaders('https://r2/x?X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost')).toEqual(new Set(['content-length', 'content-type', 'host']));
+  expect(signedHeaders('https://r2/x')).toEqual(new Set());
+});
+
+it('uploads signed MIME using the original File', async () => {
+  const file = new File(['x'], 'x.mp4', {
+    type: 'video/mp4'
+  });
+  const f = mock(Response.json({
+    id: 'a',
+    upload_url: 'https://r2/x?X-Amz-SignedHeaders=content-type'
+  }), new Response(), Response.json({
+    id: 'a'
+  }));
+  await expect(upload(file, 'video')).resolves.toEqual({
+    id: 'a'
+  });
+  expect(f.mock.calls[1]).toEqual(['https://r2/x?X-Amz-SignedHeaders=content-type', expect.objectContaining({
+    method: 'PUT',
+    body: file,
+    headers: {
+      'Content-Type': 'video/mp4'
+    }
+  })]);
+  expect(f.mock.calls[1][1].body).toBe(file);
+  expect(f.mock.calls[2][0]).toBe('/api/v1/files/a/complete');
+});
+
+it('suppresses inferred MIME for unsigned uploads without buffering', async () => {
+  const f = mock(Response.json({
+    id: 'a',
+    upload_url: 'https://r2/x'
+  }), new Response(), Response.json({
+    id: 'a'
+  }));
+  const file = new File(['hello'], 'x', {
+    type: 'video/mp4'
+  });
+  const RealRequest = globalThis.Request;
+  const requestConstructor = vi.fn(function(input: RequestInfo | URL, init?: RequestInit) {
+    return new RealRequest(input, init);
+  });
+  vi.stubGlobal('Request', requestConstructor);
+  await upload(file, 'video');
+  expect(requestConstructor.mock.calls[0][1]?.body).toBe(file);
+  const req = f.mock.calls[1][0] as Request;
+  expect(req).toBeInstanceOf(RealRequest);
+  expect(req.headers.has('Content-Type')).toBe(false);
+  expect(await req.text()).toBe('hello');
+  expect(req.credentials).toBe('same-origin');
+});
+
+it('rejects missing signed MIME and unsafe upload URLs', async () => {
+  mock(Response.json({
+    id: 'a',
+    upload_url: 'https://r2/x?X-Amz-SignedHeaders=content-type'
+  }), Response.json({
+    id: 'a',
+    upload_url: 'javascript:bad'
+  }));
+  await expect(upload(new File(['x'], 'x'), 'video')).rejects.toMatchObject({
+    status: 400
+  });
+  await expect(upload(new File(['x'], 'x'), 'video')).rejects.toMatchObject({
+    status: 400
+  });
+});
+
+it('parses complete SSE and retains original incomplete bytes', () => {
+  expect(parseSse('event: replay\ndata:\n\ndata: {"type":"step"}\n\n').events).toEqual([{
+    type: 'replay'
+  }, {
+    type: 'step'
+  }]);
+  expect(parseSse('data: {"a":1}\r\n\r\n').events).toEqual([{
+    a: 1
+  }]);
+  expect(parseSse('data: {"a":')).toEqual({
+    events: [],
+    rest: 'data: {"a":'
+  });
+  expect(parseSse('data: {"a":1}\r\n\r').rest).toBe('data: {"a":1}\r\n\r');
+});
+
+it('streams odd CRLF chunks and UTF8 without reconnecting', async () => {
+  const bytes = new TextEncoder().encode('data: {"type":"text","data":"é"}\r\n\r\n');
+  mock(new Response(new ReadableStream({
+    start(c) {
+      for (const b of bytes)
+        c.enqueue(new Uint8Array([b]));
+      c.close();
+    }
+  })));
+  const events: unknown[] = [];
+  await streamEvents('/events', e => events.push(e));
+  expect(events).toEqual([{
+    type: 'text',
+    data: 'é'
+  }]);
+});
+
+it('checks stream errors before reading and paginates sites', async () => {
+  mock(new Response('', {
+    status: 500
+  }), Response.json({
+    items: [{
+      id: '1'
+    }],
+    total: 2
+  }), Response.json({
+    items: [{
+      id: '2'
+    }],
+    total: 2
+  }));
+  await expect(streamEvents('/events', () => {
+  })).rejects.toMatchObject({
+    status: 500
+  });
+  expect(await allSites()).toEqual([{
+    id: '1'
+  }, {
+    id: '2'
+  }]);
+});
+
+
+it.each([
+  ['/api/v1/storage/local.mp4', false],
+  ['/api/v1/storage/local.mp4?X-Amz-SignedHeaders=content-type', true],
+  ['https://r2.example/video.mp4', false],
+  ['https://r2.example/video.mp4?X-Amz-SignedHeaders=content-type', true],
+])('uses browser origin-scoped credentials for upload %s', async (url, signed) => {
+  const file = new File(['video'], 'video.mp4', { type: 'video/mp4' });
+  const fetchMock = mock(
+    Response.json({ id: 'local', upload_url: url }),
+    new Response(),
+    Response.json({ id: 'local' }),
+  );
+
+  await upload(file, 'video');
+
+  const [input, init] = fetchMock.mock.calls[1];
+  if (signed) {
+    expect(init.credentials).toBe('same-origin');
+    expect(init.body).toBe(file);
+    expect(new Headers(init.headers).get('Authorization')).toBeNull();
+    expect(new Headers(init.headers).get('Content-Type')).toBe(file.type);
+  } else {
+    expect(input).toBeInstanceOf(Request);
+    expect(input.credentials).toBe('same-origin');
+    expect(input.headers.get('Authorization')).toBeNull();
+    expect(input.headers.get('Content-Type')).toBeNull();
+  }
+});
