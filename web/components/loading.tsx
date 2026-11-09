@@ -4,6 +4,22 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 type LoadingVariant = 'inline' | 'page' | 'panel' | 'table' | 'video' | 'chat' | 'cards' | 'setup' | 'dashboard' | 'navigation' | 'heading';
 
+export function ThinkingIndicator({ label = 'Thinking…' }: { label?: string }) {
+  return <div role="status" aria-live="polite" className="flex items-center gap-3 text-sm text-muted-foreground">
+    <span aria-hidden="true" className="flex h-8 items-center gap-1.5 rounded-full bg-muted px-3">
+      {[0, 1, 2].map(dot => <span key={dot} className="thinking-dot size-1.5 rounded-full bg-current" style={{ animationDelay: `${dot * 160}ms` }} />)}
+    </span>
+    <span>{label}</span>
+  </div>;
+}
+
+export function VideoLoading({ label }: { label: string }) {
+  return <div role="status" aria-live="polite" className="flex flex-col items-center gap-3 rounded-2xl border border-white/15 bg-zinc-950/75 px-6 py-5 text-white shadow-lg backdrop-blur-md">
+    <span aria-hidden="true" className="relative size-9"><span className="absolute inset-0 rounded-full border-2 border-white/15" /><span className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-white/90 motion-reduce:animate-none" /></span>
+    <span className="text-xs font-medium tracking-wide text-white/80">{label}</span>
+  </div>;
+}
+
 function Lines({ short = false }: { short?: boolean }) {
   return <div className="space-y-2.5"><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-[88%]" /><Skeleton className={cn('h-3', short ? 'w-2/5' : 'w-3/5')} /></div>;
 }

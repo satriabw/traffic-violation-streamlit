@@ -136,3 +136,14 @@
   summary { list-style-position: inside; }
   summary::marker { color: var(--muted-foreground); }
 }
+
+@keyframes thinking-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.thinking-dot { animation: thinking-dot 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dot { animation: none; opacity: 0.65; }
+}

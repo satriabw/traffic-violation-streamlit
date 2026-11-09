@@ -1,6 +1,6 @@
 'use client';
 
-import { Loading } from '@/components/loading';
+import { Loading, ThinkingIndicator } from '@/components/loading';
 import { ArrowUp, ChevronDown, MessageSquare, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -67,7 +67,7 @@ export function ChatPanel({ siteId, violationId, heading = true }: { siteId: str
   useEffect(() => {
     const element = thread.current;
     if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
-  }, [selected, current?.turns.length, busy]);
+  }, [selected, current?.turns.length, busy, ask.isPending]);
   const disabled = busy || full || ask.isPending || remove.isPending || (selected !== 'new' && !current);
   return <section aria-label="Violation conversation" className="flex min-h-[32rem] min-w-0 flex-col lg:h-full lg:min-h-0">
     {heading && <h2 className="text-xl font-semibold">Ask about this violation</h2>}
@@ -86,11 +86,18 @@ export function ChatPanel({ siteId, violationId, heading = true }: { siteId: str
             {selected !== 'new' && <Button variant="ghost" size="icon" aria-label="Delete chat" disabled={remove.isPending || ask.isPending} onClick={() => remove.mutate()}><Trash2 className="size-4" /></Button>}
           </div>
           <div ref={thread} role="log" aria-label="Messages" className="min-h-0 flex-1 space-y-7 overflow-y-auto overscroll-contain px-5 py-8 sm:px-8">
-          {selected === 'new' && <div className="flex h-full min-h-52 flex-col items-center justify-center text-center"><MessageSquare className="mb-4 size-7 text-muted-foreground" /><h2 className="text-xl font-semibold tracking-tight">Let’s look at the evidence</h2><p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Watch the clip, then ask about what happened and the rules that may apply.</p><div className="mt-6 flex flex-wrap justify-center gap-2">{['What happened in this clip?', 'What supports this detection?', 'Which rules may apply?'].map(prompt => <Button key={prompt} variant="outline" size="sm" className="h-auto whitespace-normal rounded-full py-2" onClick={() => setText(prompt)}>{prompt}</Button>)}</div></div>}
+          {selected === 'new' && !ask.isPending && <div className="flex h-full min-h-52 flex-col items-center justify-center text-center"><MessageSquare className="mb-4 size-7 text-muted-foreground" /><h2 className="text-xl font-semibold tracking-tight">Let’s look at the evidence</h2><p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Watch the clip, then ask about what happened and the rules that may apply.</p><div className="mt-6 flex flex-wrap justify-center gap-2">{['What happened in this clip?', 'What supports this detection?', 'Which rules may apply?'].map(prompt => <Button key={prompt} variant="outline" size="sm" className="h-auto whitespace-normal rounded-full py-2" onClick={() => setText(prompt)}>{prompt}</Button>)}</div></div>}
           {selected !== 'new' && chat.isPending && <Loading variant="panel" label="Loading conversation…" />}
           {selected !== 'new' && chat.isError && <ErrorAlert error={chat.error} />}
           {current?.turns.map(turn => <Turn key={turn.question} turn={turn} events={events.data ?? []} />)}
-          {busy && <div role="status" className="space-y-2 rounded-lg border p-4"><Loading label="Answering…" /><ProgressSteps progress={progress} />{progress.exchanges.at(-1)?.answer === null && <p>Waiting for the legal source; it usually takes 25 to 35 s.</p>}</div>}
+          {(busy || ask.isPending) && <div className="mx-auto max-w-2xl space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">Assistant</p>
+            <ThinkingIndicator label={busy && progress.exchanges.at(-1)?.answer === null ? 'Checking legal sources…' : 'Thinking…'} />
+            {busy && progress.events.length > 0 && <Collapsible>
+              <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="text-xs text-muted-foreground" />}>View progress<ChevronDown className="size-3.5" /></CollapsibleTrigger>
+              <CollapsibleContent className="pt-3"><ProgressSteps progress={progress} /></CollapsibleContent>
+            </Collapsible>}
+          </div>}
           {events.isError && <ErrorAlert error={events.error} />}
           </div>
           <div className="sticky bottom-0 shrink-0 bg-background px-4 pb-4 pt-3 sm:px-6">
