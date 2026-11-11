@@ -149,7 +149,7 @@ export type Recommendation = {
 };
 export type ReviewDoc = {
   flag_check: {
-    status: 'on_foot' | 'riding' | 'unclear';
+    status: 'on_foot' | 'riding' | 'stands' | 'does_not_stand' | 'unclear';
     seen: string;
     tracking_facts: string[];
     picture: boolean;
