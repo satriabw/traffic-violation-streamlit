@@ -39,7 +39,7 @@ describe('evidence presentation', () => {
     const other = { ...track, trackId: 8 };
     const html = renderToStaticMarkup(<BoxesOverlay src="/frame.jpg" tracks={[track, other]} frame={0} sourceSize={[1920, 1080]} colours={colours} violatorId={7} />);
     expect(html).toContain('viewBox="0 0 1920 1080"');
-    expect(html).toContain('veh #7 · violator 12.3 m/s');
+    expect(html).toContain('veh #7 · judged 12.3 m/s');
     const found = renderToStaticMarkup(<BoxesOverlay src="/frame.jpg" tracks={[track, other]} frame={0} sourceSize={[1920, 1080]} colours={colourMap([8])} violatorId={7} involvedIds={[8]} />);
     expect(found).toContain('veh #8 · involved');
     expect(html).not.toContain('veh #8');

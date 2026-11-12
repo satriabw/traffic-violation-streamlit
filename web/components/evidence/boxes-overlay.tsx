@@ -24,7 +24,7 @@ export function BoxesOverlay({ src, tracks, frame, sourceSize, colours, violator
     const box = bboxAt(track, frame);
     if (!box || box.length < 4 || !box.every(Number.isFinite)) return [];
     const speed = speedAt(track, frame);
-    const role = track.trackId === violatorId ? ' · violator' : involvedIds.includes(track.trackId) ? ' · involved' : '';
+    const role = track.trackId === violatorId ? ' · judged' : involvedIds.includes(track.trackId) ? ' · involved' : '';
     const text = label(track) + role
       + (speed != null && Number.isFinite(speed) ? ` ${speed.toFixed(speed < 100 ? 1 : 0)} m/s` : '');
     return [{ track, box, text, colour: colours.get(track.trackId) ?? MUTED }];
