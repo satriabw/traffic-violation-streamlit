@@ -14,6 +14,7 @@ import { TraceView } from '@/components/trace-view';
 import { ProgressSteps } from '@/components/progress-steps';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { FeedbackForm, runIdOf } from '@/components/feedback-form';
 
 export function ReviewPanel({ siteId, violationId, status, updatedAt, stepsContainer }: {
   stepsContainer?: HTMLElement | null;
@@ -37,7 +38,8 @@ export function ReviewPanel({ siteId, violationId, status, updatedAt, stepsConta
   const steps = useQuery({
     queryKey: ['review-events', siteId, violationId, updatedAt],
     queryFn: () => readEvents(`${path}/events?after=-1&paced=false`),
-    enabled: showSteps && !following && (review.data?.status === 'completed' || review.data?.status === 'failed'),
+    // Read once finished: the steps when shown, and the run the feedback form rates.
+    enabled: !following && (review.data?.status === 'completed' || review.data?.status === 'failed'),
     staleTime: Infinity,
   });
 
@@ -77,6 +79,7 @@ export function ReviewPanel({ siteId, violationId, status, updatedAt, stepsConta
     {review.isError && <ErrorAlert error={review.error} />}
     {review.isPending && !following && <Loading variant="panel" label="Loading review…" />}
     {completed && <FinishedReview review={completed} />}
+    {completed && runIdOf(steps.data ?? progress.events) && <FeedbackForm siteId={siteId} violationId={violationId} runId={runIdOf(steps.data ?? progress.events)} />}
     {failed && <div role="alert"><p>The last review failed and is not retried automatically. Press the button below to try again.</p><p>{review.data?.error || progress.error}</p></div>}
     {!following && !completed && !failed && review.isSuccess && <p>{review.data?.status === 'running' || status === 'pending' ? 'The review is still running.' : 'Not reviewed yet. This violation has not been sent for review.'}</p>}
     {!following && (['detected', 'failed'].includes(status) || failed) && <div className="space-y-2">

@@ -18,6 +18,7 @@ import { ErrorAlert } from '@/components/notice';
 import { StatusBadge } from '@/components/status-badge';
 import { BoxesOverlay } from '@/components/evidence/boxes-overlay';
 import { TrackPicker } from '@/components/evidence/track-picker';
+import { FeedbackForm } from '@/components/feedback-form';
 import { GroundPlot } from '@/components/evidence/ground-plot';
 import { SpeedChart } from '@/components/evidence/speed-chart';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -95,6 +96,7 @@ function Evidence({ violation, source, configuration, analysisLoading }: {
           ? <img src={thumbnail} alt="Violation evidence" className="aspect-video w-full rounded-xl bg-muted object-contain" />
           : <div className="rounded-xl bg-muted/40 p-8 text-center text-sm text-muted-foreground">{violation.evidence_status === 'pending' ? 'The evidence is still being prepared.' : 'No evidence image is available.'}</div>}
         {CHAT_ENABLED && <Button variant="outline" size="sm" render={<Link href={chatHref(violation.site_id, violation.id)} />}>Ask about this violation in Chat</Button>}
+        <FeedbackForm siteId={violation.site_id} violationId={violation.id} />
       </section>
       <aside aria-label="Evidence review" className="min-w-0"><ReviewPanel key={violation.id} siteId={violation.site_id} violationId={violation.id} status={violation.explanation_status} updatedAt={violation.updated_at} stepsContainer={stepsContainer} /></aside>
     </div>

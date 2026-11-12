@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, del, get, post, readEvents } from '@/lib/api';
 import { collect } from '@/lib/progress';
 import type { Chat, ChatSummary, ChatTurn, StreamEvent } from '@/lib/types';
+import { FeedbackForm, runIdOf } from '@/components/feedback-form';
 import { ErrorAlert } from '@/components/notice';
 import { Markdown } from '@/components/markdown';
 import { TraceView } from '@/components/trace-view';
@@ -89,7 +90,7 @@ export function ChatPanel({ siteId, violationId, heading = true }: { siteId: str
           {selected === 'new' && !ask.isPending && <div className="flex h-full min-h-52 flex-col items-center justify-center text-center"><MessageSquare className="mb-4 size-7 text-muted-foreground" /><h2 className="text-xl font-semibold tracking-tight">Let’s look at the evidence</h2><p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">Watch the clip, then ask about what happened and the rules that may apply.</p><div className="mt-6 flex flex-wrap justify-center gap-2">{['What happened in this clip?', 'What supports this detection?', 'Which rules may apply?'].map(prompt => <Button key={prompt} variant="outline" size="sm" className="h-auto whitespace-normal rounded-full py-2" onClick={() => setText(prompt)}>{prompt}</Button>)}</div></div>}
           {selected !== 'new' && chat.isPending && <Loading variant="panel" label="Loading conversation…" />}
           {selected !== 'new' && chat.isError && <ErrorAlert error={chat.error} />}
-          {current?.turns.map(turn => <Turn key={turn.question} turn={turn} events={events.data ?? []} />)}
+          {current?.turns.map(turn => <Turn key={turn.question} turn={turn} events={events.data ?? []} siteId={siteId} violationId={violationId} />)}
           {(busy || ask.isPending) && <div className="mx-auto max-w-2xl space-y-3">
             <p className="text-xs font-medium text-muted-foreground">Assistant</p>
             <ThinkingIndicator label={busy && progress.exchanges.at(-1)?.answer === null ? 'Checking legal sources…' : 'Thinking…'} />
@@ -114,7 +115,7 @@ export function ChatPanel({ siteId, violationId, heading = true }: { siteId: str
   </section>;
 }
 
-function Turn({ turn, events }: { turn: ChatTurn; events: StreamEvent[] }) {
+function Turn({ turn, events, siteId, violationId }: { turn: ChatTurn; events: StreamEvent[]; siteId: string; violationId: string }) {
   const progress = collect(events.filter(event => event.sequence != null && event.sequence >= turn.first_event && event.sequence <= turn.last_event));
   return <article className="mx-auto max-w-2xl space-y-5">
     <div className="flex justify-end"><div className="max-w-[90%] rounded-2xl bg-muted px-4 py-3 text-sm"><span className="sr-only">You: </span><Markdown text={turn.text} /></div></div>
@@ -124,5 +125,6 @@ function Turn({ turn, events }: { turn: ChatTurn; events: StreamEvent[] }) {
       <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="text-muted-foreground" />}>How it answered: steps<ChevronDown className="size-4" /></CollapsibleTrigger>
       <CollapsibleContent className="pt-3"><TraceView events={progress.events} name={`chat-question-${turn.question}`} /></CollapsibleContent>
     </Collapsible>}
+    {turn.reply != null && runIdOf(progress.events) && <FeedbackForm siteId={siteId} violationId={violationId} runId={runIdOf(progress.events)} />}
   </article>;
 }
