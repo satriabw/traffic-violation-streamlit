@@ -97,7 +97,7 @@ export function FinishedReview({ review }: { review: ReviewDoc }) {
   const clerk = review.clerk_recommendation;
   const flag = review.flag_check;
   return <div className="space-y-5">
-    {flag && flag.status !== 'on_foot' && <div className="rounded-lg border p-4"><strong>{flag.status === 'riding' ? 'The person was riding, not walking — the flag likely does not stand.' : 'Whether the person was on foot cannot be told from the evidence.'}</strong><Markdown text={flag.seen} /></div>}
+    {flag && flag.status !== 'on_foot' && flag.status !== 'stands' && <div className="rounded-lg border p-4"><strong>{{riding: 'The person was riding, not walking — the flag likely does not stand.', does_not_stand: 'The record does not bear the rule out — the detection likely does not stand.', unclear: 'Whether the detection stands cannot be told from the evidence.'}[flag.status]}</strong><Markdown text={flag.seen} /></div>}
     {clerk && <div className="space-y-3 rounded-lg border p-4"><h3 className="font-semibold">Recommended next step</h3><Markdown text={clerk.text} />{clerk.justification?.length > 0 && <details><summary className="cursor-pointer text-sm text-muted-foreground">Why this recommendation</summary><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">{clerk.justification.map((point, i) => <li key={i}><Markdown text={point.point} /></li>)}</ol></details>}<p className="text-sm text-muted-foreground">Guidance only: the clerk decides.</p></div>}
     <details className="border-t pt-4"><summary className="cursor-pointer text-sm font-medium">Supporting findings and recommendations</summary><div className="mt-4 space-y-5 text-sm">
     {review.summary && <Markdown text={review.summary} />}
