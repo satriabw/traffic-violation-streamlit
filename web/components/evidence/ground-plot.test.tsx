@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { GroundPlot } from './ground-plot';
 import { BoxesOverlay } from './boxes-overlay';
-import type { Track } from '@/lib/evidence';
+import { colourMap, type Track } from '@/lib/evidence';
 
 const track: Track = {
   trackId: 7, kind: 'vehicle', frameIdxs: [0, 100],
@@ -40,6 +40,8 @@ describe('evidence presentation', () => {
     const html = renderToStaticMarkup(<BoxesOverlay src="/frame.jpg" tracks={[track, other]} frame={0} sourceSize={[1920, 1080]} colours={colours} violatorId={7} />);
     expect(html).toContain('viewBox="0 0 1920 1080"');
     expect(html).toContain('veh #7 · violator 12.3 m/s');
+    const found = renderToStaticMarkup(<BoxesOverlay src="/frame.jpg" tracks={[track, other]} frame={0} sourceSize={[1920, 1080]} colours={colourMap([8])} violatorId={7} involvedIds={[8]} />);
+    expect(found).toContain('veh #8 · involved');
     expect(html).not.toContain('veh #8');
     expect(html).toContain('#94a3b8');
   });

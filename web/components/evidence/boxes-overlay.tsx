@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { bboxAt, label, MUTED, placeLabels, speedAt, type Track } from '@/lib/evidence';
 import { safeUrl } from '@/lib/format';
 
-export function BoxesOverlay({ src, tracks, frame, sourceSize, colours, violatorId }: {
+export function BoxesOverlay({ src, tracks, frame, sourceSize, colours, violatorId, involvedIds = [] }: {
   src: string;
   tracks: Track[];
   frame?: number | null;
   sourceSize?: [number, number] | null;
   colours: Map<number, string>;
   violatorId?: number | null;
+  // The road users the rule's checks found when it fired.
+  involvedIds?: readonly number[];
 }) {
   const [natural, setNatural] = useState<[number, number] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -22,7 +24,8 @@ export function BoxesOverlay({ src, tracks, frame, sourceSize, colours, violator
     const box = bboxAt(track, frame);
     if (!box || box.length < 4 || !box.every(Number.isFinite)) return [];
     const speed = speedAt(track, frame);
-    const text = label(track) + (track.trackId === violatorId ? ' · violator' : '')
+    const role = track.trackId === violatorId ? ' · violator' : involvedIds.includes(track.trackId) ? ' · involved' : '';
+    const text = label(track) + role
       + (speed != null && Number.isFinite(speed) ? ` ${speed.toFixed(speed < 100 ? 1 : 0)} m/s` : '');
     return [{ track, box, text, colour: colours.get(track.trackId) ?? MUTED }];
   });

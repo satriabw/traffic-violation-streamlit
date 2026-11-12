@@ -35,25 +35,13 @@ describe('evidence maths', () => {
     expect(speedAt(t, 30)).toBeNull();
   });
 
-  it('selects the violator followed by pedestrians ranked by zone time', () => {
-    const vehicle = track(1, 'vehicle');
-    const short = { ...track(4), frameIdxs: [0] };
-    const tracks = [track(2, 'vehicle'), track(3, 'pedestrian', 2), track(5), short, vehicle];
-    expect(involved(tracks, 1, configuration, 0, 30).map(t => t.trackId)).toEqual([1, 5, 3]);
-    expect(involved(tracks, null, configuration, 0, 30)).toEqual(tracks);
-    expect(involved(tracks, 1, null, 0, null).map(t => t.trackId)).toEqual([1, 3, 5]);
-  });
-
-  it('rounds half-second sample floors to even at odd frame rates', () => {
-    const vehicle = track(1, 'vehicle');
-    const pedestrian = { ...track(2), frameIdxs: Array.from({ length: 12 }, (_, i) => i) };
-    expect(involved([vehicle, pedestrian], 1, configuration, 0, 25)).toEqual([vehicle, pedestrian]);
-    expect(involved([vehicle, pedestrian], 1, configuration, 0, 27)).toEqual([vehicle]);
-
-    const thirteen = { ...pedestrian, frameIdxs: Array.from({ length: 13 }, (_, i) => i) };
-    const fourteen = { ...pedestrian, frameIdxs: Array.from({ length: 14 }, (_, i) => i) };
-    expect(involved([vehicle, thirteen], 1, configuration, 0, 27)).toEqual([vehicle]);
-    expect(involved([vehicle, fourteen], 1, configuration, 0, 27)).toEqual([vehicle, fourteen]);
+  it('lists the violator then the road users the rule found, from any list, in the rule\'s order', () => {
+    const cyclist = track(1, 'pedestrian');
+    const tracks = [track(2, 'vehicle'), track(3), track(5, 'vehicle'), cyclist];
+    expect(involved(tracks, 1, [5, 3]).map(t => t.trackId)).toEqual([1, 5, 3]);
+    expect(involved(tracks, 1, [1, 9]).map(t => t.trackId)).toEqual([1]);
+    expect(involved(tracks, 1, undefined)).toEqual([cyclist]);
+    expect(involved(tracks, null, [3]).map(t => t.trackId)).toEqual([3]);
   });
 
   it('uses three stable palette slots and reports only selected implausible speeds', () => {

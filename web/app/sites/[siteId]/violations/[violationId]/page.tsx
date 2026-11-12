@@ -22,7 +22,7 @@ import { GroundPlot } from '@/components/evidence/ground-plot';
 import { SpeedChart } from '@/components/evidence/speed-chart';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-type Configuration = NonNullable<Parameters<typeof involved>[2]> & {
+type Configuration = NonNullable<Parameters<typeof groundZones>[1]> & {
   camera?: { width?: number; height?: number };
 };
 
@@ -114,7 +114,7 @@ function RoadUserAnalysis({ violation, source, configuration }: { violation: Vio
   const camera = configuration?.camera;
   const picture = sourceSize ?? (camera?.width && camera.height ? [camera.width, camera.height] as [number, number] : null);
   const violatorId = violation.metadata?.violator_track_id;
-  const users = involved(tracks, violatorId, configuration, frame, fps);
+  const users = involved(tracks, violatorId, violation.involved_track_ids);
   const [selected, setSelected] = useState(() => users.slice(0, 3).map(track => track.trackId));
   const colours = colourMap(selected);
   const fastest = implausible(tracks, colours);
@@ -124,7 +124,7 @@ function RoadUserAnalysis({ violation, source, configuration }: { violation: Vio
     <div className="mt-5 space-y-5">
       <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Positions and speeds are estimates based on camera calibration. Paths use a top-down ground plane in metres, because perspective distorts distances in the video.</p>
       {users.length > 0 && <TrackPicker tracks={users} selected={selected} onChange={setSelected} />}
-      {violation.thumbnail_url && <details className="rounded-xl border p-4"><summary className="cursor-pointer text-sm font-medium">Inspect the key frame</summary><div className="mt-4 max-w-3xl"><BoxesOverlay src={violation.thumbnail_url} tracks={tracks} frame={frame} sourceSize={sourceSize} colours={colours} violatorId={violatorId} /></div></details>}
+      {violation.thumbnail_url && <details className="rounded-xl border p-4"><summary className="cursor-pointer text-sm font-medium">Inspect the key frame</summary><div className="mt-4 max-w-3xl"><BoxesOverlay src={violation.thumbnail_url} tracks={tracks} frame={frame} sourceSize={sourceSize} colours={colours} violatorId={violatorId} involvedIds={violation.involved_track_ids} /></div></details>}
       {fastest != null && <Alert><AlertDescription>The fastest vehicle is estimated at {fastest.toFixed(0)} m/s ({(fastest * 3.6).toFixed(0)} km/h). Check the camera calibration; speeds and positions may be unreliable. Detection timing is unaffected.</AlertDescription></Alert>}
       {colours.size > 0 && <div className="grid gap-6 lg:grid-cols-2"><div className="min-w-0 space-y-3"><h3 className="text-sm font-medium">Road paths (metres, estimated)</h3><GroundPlot tracks={tracks} colours={colours} fps={fps} violationT={moment} zones={groundZones(violation.metadata, configuration)} view={cameraView(violation.metadata, picture)} /></div><div className="min-w-0 space-y-3"><h3 className="text-sm font-medium">Speed over the last 10 seconds (m/s)</h3><SpeedChart tracks={tracks} colours={colours} fps={fps} violationT={moment} /></div></div>}
       <details className="text-sm"><summary className="cursor-pointer text-muted-foreground">Road-user samples</summary><ul className="mt-3 space-y-2 text-xs text-muted-foreground">{users.map(track => <li key={`${track.kind}-${track.trackId}`}>{label(track)} · {track.frameIdxs.length} samples{track.trackId === violatorId && ' · violator'}</li>)}</ul></details>

@@ -115,6 +115,7 @@ export type Track = {
   ][];
 };
 export type Violation = ViolationSummary & {
+  involved_track_ids?: number[];
   metadata?: {
     vehicles: Track[];
     pedestrians: Track[];

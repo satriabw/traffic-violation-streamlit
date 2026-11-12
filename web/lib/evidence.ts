@@ -7,9 +7,7 @@ export const INK_SOFT = '#64748b';
 export const GRID = '#e2e8f0';
 export const ZONE = '#cbd5e1';
 export const ZONE_REACH_METRES = 200;
-export const MIN_TRACK_SECONDS = 0.5;
 export const SPEED_WINDOW_SECONDS = 10;
-export const FALLBACK_FPS = 30;
 export const IMPLAUSIBLE_SPEED_MS = 60;
 
 type Point = [number, number];
@@ -86,56 +84,14 @@ export function speedAt(track: Track, frame: number | null | undefined): number 
   return index == null ? null : track.speed[index] ?? null;
 }
 
-function inside(box: number[], polygon: number[][]): boolean {
-  const x = (box[0] + box[2]) / 2;
-  const y = box[3];
-  let hit = false;
-  for (let i = 0; i < polygon.length; i++) {
-    const [x1, y1] = polygon[i];
-    const [x2, y2] = polygon[(i + 1) % polygon.length];
-    if ((y1 > y) !== (y2 > y) && x < x1 + (y - y1) * (x2 - x1) / (y2 - y1)) {
-      hit = !hit;
-    }
-  }
-  return hit;
-}
-
-// Python's round chooses the even integer when a positive sample floor is halfway.
-function roundToEven(value: number): number {
-  const lower = Math.floor(value);
-  if (value - lower === 0.5) {
-    return lower % 2 === 0 ? lower : lower + 1;
-  }
-  return Math.round(value);
-}
-
+// The violator, then each road user the rule's checks found when it fired, as the API reads them from its trace.
 export function involved(
   tracks: Track[],
   violatorId: number | null | undefined,
-  configuration: Configuration | null | undefined,
-  frame: number | null | undefined,
-  fps: number | null | undefined,
+  involvedIds: readonly number[] | null | undefined,
 ): Track[] {
-  const violator = tracks.find(t => t.kind === 'vehicle' && t.trackId === violatorId);
-  if (!violator) return tracks.filter(t => bboxAt(t, frame));
-  const zones = (configuration?.regions?.rois ?? [])
-    .map(region => region.points ?? [])
-    .filter(points => points.length >= 3);
-  const box = bboxAt(violator, frame);
-  const occupied = box ? zones.find(zone => inside(box, zone)) : undefined;
-  const crosswalks = occupied ? [occupied] : zones;
-  const shortest = roundToEven(MIN_TRACK_SECONDS * (fps || FALLBACK_FPS));
-  const scored = tracks
-    .filter(t => t.kind === 'pedestrian' && t.frameIdxs.length >= shortest)
-    .map(t => ({
-      track: t,
-      hits: crosswalks.length
-        ? t.bboxes.filter(b => crosswalks.some(zone => inside(b, zone))).length
-        : Number(bboxAt(t, frame) != null),
-    }))
-    .filter(item => item.hits > 0)
-    .sort((a, b) => b.hits - a.hits);
-  return [violator, ...scored.map(item => item.track)];
+  const ids = [...(violatorId != null ? [violatorId] : []), ...(involvedIds ?? []).filter(id => id !== violatorId)];
+  return ids.flatMap(id => tracks.find(t => t.trackId === id) ?? []);
 }
 
 export function colourMap(ids: Iterable<number>): Map<number, string> {
