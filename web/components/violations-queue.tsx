@@ -37,6 +37,7 @@ export function ViolationsQueue({ siteId, runId, showHeader = true }: { siteId: 
   const pathname = usePathname();
   const search = useSearchParams();
   const [offset, setOffset] = useState(0);
+  const [noted, setNoted] = useState(false);
   const path = `/sites/${encodeURIComponent(siteId)}`;
   const runs = useQuery({
     queryKey: ['runs', siteId, { limit: 20 }],
@@ -46,8 +47,9 @@ export function ViolationsQueue({ siteId, runId, showHeader = true }: { siteId: 
   if (runId) {
     params.set('run_id', runId);
   }
+  params.set('observation', String(noted));
   const violations = useQuery({
-    queryKey: ['violations', siteId, { runId, offset, limit: PER_PAGE }],
+    queryKey: ['violations', siteId, { runId, offset, limit: PER_PAGE, noted }],
     queryFn: () => get<Page<ViolationSummary>>(`${path}/violations?${params}`),
   });
   const sourceIds = [...new Set([
@@ -85,6 +87,12 @@ export function ViolationsQueue({ siteId, runId, showHeader = true }: { siteId: 
         <h1 className="text-2xl font-semibold">Violations</h1>
         <p className="text-sm text-muted-foreground">Current violations for this site. Runs judged under a document later marked invalid are left out.</p>
       </header>}
+      <div className="flex gap-2" role="group" aria-label="Show">
+        {([['Violations', false], ['Observations', true]] as const).map(([word, value]) =>
+          <Button key={word} type="button" size="sm" variant={noted === value ? 'default' : 'outline'} aria-pressed={noted === value}
+            onClick={() => { setNoted(value); setOffset(0); }}>{word}</Button>)}
+      </div>
+      {noted && <p className="text-xs text-muted-foreground">Observations note an event, such as a cyclist crossing; they are not offences.</p>}
       <div className="space-y-2">
         <label id="run-label" className="text-sm font-medium">Run</label>
         <Select value={runId ?? ''} onValueChange={changeRun}>

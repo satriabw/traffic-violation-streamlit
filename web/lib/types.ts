@@ -99,6 +99,7 @@ export type ViolationSummary = Timestamps & {
   clip_key?: string | null;
   key_frame_key?: string | null;
   real_violation?: boolean | null;
+  observation?: boolean;
 };
 export type Track = {
   track_id: number;

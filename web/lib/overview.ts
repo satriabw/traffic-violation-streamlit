@@ -1,6 +1,8 @@
 import type { Run, Site, ViolationSummary } from './types';
 
-export function summarise(sites: Site[], violations: ViolationSummary[], runs: Run[]) {
+export function summarise(sites: Site[], found: ViolationSummary[], runs: Run[]) {
+  // Observations only note an event; they are counted apart and left out of every violation figure.
+  const violations = found.filter(item => !item.observation);
   const statuses = (status: string) => violations.filter(item => item.explanation_status === status).length;
   const days = new Map<string, number>();
   const counts = new Map<string, number>();
@@ -26,6 +28,8 @@ export function summarise(sites: Site[], violations: ViolationSummary[], runs: R
       sites: sites.length,
       streams: sites.filter(site => site.source?.kind === 'stream').length,
       violations: violations.length,
+      observations: found.length - violations.length,
+      confirmed: violations.filter(item => item.real_violation === true).length,
       awaiting: statuses('detected'), reviewed: statuses('explained'),
       pending: statuses('pending'), failed: statuses('failed'),
       busy: runs.filter(run => ['queued', 'running'].includes(run.status)).length,

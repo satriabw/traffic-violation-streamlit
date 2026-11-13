@@ -67,7 +67,7 @@ export default function OverviewPage() {
   const tiles = summary?.tiles;
   const figures = tiles ? [
     { label: 'Sites', value: tiles.sites, help: `${tiles.streams} with a live feed` },
-    { label: 'Violations', value: tiles.violations },
+    { label: 'Violations', value: tiles.violations, help: `${tiles.confirmed} confirmed real by an expert; ${tiles.observations} observations not counted` },
     { label: 'Awaiting review', value: tiles.awaiting, help: 'Detected, not yet sent for the evidence review' },
     { label: 'Reviewed', value: tiles.reviewed, help: `${tiles.pending} in progress, ${tiles.failed} failed` },
     { label: 'Runs in progress', value: tiles.busy, help: `Among each site's 20 latest runs; ${tiles.failedRuns} failed` },
