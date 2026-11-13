@@ -98,6 +98,7 @@ export type ViolationSummary = Timestamps & {
   thumbnail_key?: string | null;
   clip_key?: string | null;
   key_frame_key?: string | null;
+  real_violation?: boolean | null;
 };
 export type Track = {
   track_id: number;
@@ -210,5 +211,6 @@ export type Feedback = {
   satisfied: number;
   sure: number;
   suggestion: string | null;
+  real_violation?: boolean | null;
   created_at: string;
 };

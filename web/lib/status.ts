@@ -10,6 +10,8 @@ export const CHIPS: Record<string, [bg: string, fg: string]> = {
   pending: AMBER,
   explained: BLUE,
   failed: RED,
+  real: RED,
+  not_real: SLATE,
   ready: GREEN,
   created: SLATE,
   active: GREEN,

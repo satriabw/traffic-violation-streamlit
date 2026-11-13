@@ -18,15 +18,17 @@ describe('expert feedback', () => {
     expect(html).toContain('How sure are you of this evaluation?');
     expect(html).toContain('(1 = not at all, 5 = completely (expert))');
     expect(html).toContain('Suggestion...');
+    expect(html).toContain('Is this a real violation?');
+    expect(render('run-a')).not.toContain('Is this a real violation?');
   });
 
   it('shows the latest feedback given on the same answer only', () => {
     const saved = [
-      { id: '1', run_id: null, satisfied: 2, sure: 4, suggestion: null, created_at: '2026-11-12T10:00:00Z' },
+      { id: '1', run_id: null, satisfied: 2, sure: 4, suggestion: null, real_violation: false, created_at: '2026-11-12T10:00:00Z' },
       { id: '2', run_id: 'run-a', satisfied: 5, sure: 3, suggestion: null, created_at: '2026-11-12T10:01:00Z' },
     ];
     expect(render('run-a', saved)).toContain('Last saved: satisfied 5, sure 3');
-    expect(render(null, saved)).toContain('Last saved: satisfied 2, sure 4');
+    expect(render(null, saved)).toContain('Last saved: not a violation, satisfied 2, sure 4');
     expect(render('run-b', saved)).not.toContain('Last saved');
   });
 

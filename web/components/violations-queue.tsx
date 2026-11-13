@@ -119,6 +119,7 @@ export function ViolationsQueue({ siteId, runId, showHeader = true }: { siteId: 
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge value={item.explanation_status} label={reviewLabel(item.explanation_status)} />
                   <StatusBadge value={item.evidence_status} />
+                  {item.real_violation != null && <StatusBadge value={item.real_violation ? 'real' : 'not_real'} label={item.real_violation ? 'Real violation' : 'Not a violation'} />}
                 </div>
                 <p className="text-sm text-muted-foreground">{eventTime(sourceOf(item.source_id), item.frame_index, item.detected_at)}</p>
                 <Button variant="outline" className="mt-auto w-full justify-between" render={<Link href={`${path}/violations/${encodeURIComponent(item.id)}`} />}>Review violation<ArrowUpRight className="size-4" /></Button>
