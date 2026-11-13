@@ -5,7 +5,7 @@ export function summarise(sites: Site[], violations: ViolationSummary[], runs: R
   const days = new Map<string, number>();
   const counts = new Map<string, number>();
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+    timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
   });
   for (const violation of violations) {
     const day = formatter.format(new Date(violation.detected_at));

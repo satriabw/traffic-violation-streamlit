@@ -12,7 +12,7 @@ const violation = (status: string, detected_at: string): ViolationSummary => ({
 });
 
 describe('summarise', () => {
-  it('counts figures, Jakarta days, and every site independently of duplicate names', () => {
+  it('counts figures, UTC days, and every site independently of duplicate names', () => {
     const result = summarise(sites, [
       violation('detected', '2026-11-01T18:00:00Z'),
       violation('explained', '2026-11-01T20:00:00Z'),
@@ -23,7 +23,7 @@ describe('summarise', () => {
       pending: 1, failed: 0, busy: 1, failedRuns: 1,
     });
     expect(result.perDay).toEqual([
-      { day: '2026-11-01', count: 1 }, { day: '2026-11-02', count: 2 },
+      { day: '2026-11-01', count: 3 },
     ]);
     expect(result.bySite).toEqual([{ site: 'Camera', count: 3 }, { site: 'Camera', count: 0 }]);
   });
@@ -33,9 +33,9 @@ describe('summarise', () => {
       violation('detected', '2026-10-31T18:00:00Z'),
       violation('failed', '2026-11-02T18:00:00Z'),
     ], []).perDay).toEqual([
-      { day: '2026-11-01', count: 1 },
-      { day: '2026-11-02', count: 0 },
-      { day: '2026-11-03', count: 1 },
+      { day: '2026-10-31', count: 1 },
+      { day: '2026-11-01', count: 0 },
+      { day: '2026-11-02', count: 1 },
     ]);
   });
 

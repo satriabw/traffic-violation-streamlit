@@ -46,7 +46,8 @@ export function ts(iso?: string | null, withSeconds = true): string {
     return iso;
   }
   return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta',
+    timeZone: 'UTC',
+    timeZoneName: 'short',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
